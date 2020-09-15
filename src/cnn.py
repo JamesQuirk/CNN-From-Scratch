@@ -14,93 +14,8 @@ import math
 # CLASS
 class CNN():
 	"""
-	---- TEST ----
-	>>> model = CNN()
-	>>> model.add_layer( CNN.Conv_Layer( (2,2), 1, 1 ) )
-	>>> model.add_layer( CNN.Pool_Layer( (2,2), 1 ) )
-	>>> model.add_layer( CNN.FC_Layer( 4 ) )
-	>>> model.prepare_model()
-	>>> in = np.arange(25).reshape((5,5))
-	>>> model.structure[0]._forwards(in)
+	This is the top level class. It contains sub-classes for each of the layers that are to be included in the model.
 	"""
-
-	# def __init__(self,n_conv,n_masks,mask_size,conv_stride,ds_size,ds_stride,fc_shape):
-	# 	'''
-	# 	Params:
-	# 		- n_conv: {int}; number of convolution layers (and downsampling layers)
-	# 		- n_masks: {int/tuple}; number of masks for convolution.
-	# 		- mask_size: {int/tuple}; size of masks for convolution.
-	# 		- conv_stride: {int/tuple}; stride length for convolution layers.
-	# 		- ds_size: {int/tuple}; size of filter window for downsampling layers.
-	# 		- ds_stride: {int/tuple}; stride length for downsampling layers.
-	# 		- fc_shape: {tuple}; indicating number of nodes for each layer of fully connected network, excluding input layer. 
-
-	# 	NOTE:: For {int/tuple} parameters: 'int' -> same value for each layer.
-	# 		'tuple' -> each value of the tuple is the specific value for that layer respectively.
-	# 	'''
-	# 	#################################################
-	# 	######## Standardise the parameters #############
-	# 	#################################################
-	# 	if type(n_masks) == int:
-	# 		self.n_masks = tuple([n_masks for x in range(n_conv)])
-	# 	elif type(n_masks) == tuple:
-	# 		if len(n_masks) != n_conv:
-	# 			print('ERROR:: length of n_masks tuple does not match n_conv')
-	# 		else:
-	# 			self.n_masks = n_masks
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for n_masks. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(mask_size) == int:
-	# 		self.mask_size = tuple([mask_size for x in range(n_conv)])
-	# 	elif type(mask_size) == tuple:
-	# 		if len(mask_size) != n_conv:
-	# 			print('ERROR:: length of mask_size tuple does not match n_conv')
-	# 		else:
-	# 			self.mask_size = mask_size
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for mask_size. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(conv_stride) == int:
-	# 		self.conv_stride = tuple([conv_stride for x in range(n_conv)])
-	# 	elif type(conv_stride) == tuple:
-	# 		if len(conv_stride) != n_conv:
-	# 			print('ERROR:: length of conv_stride tuple does not match n_conv')
-	# 		else:
-	# 			self.conv_stride = conv_stride
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for conv_stride. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(ds_size) == int:
-	# 		self.ds_size = tuple([ds_size for x in range(n_conv)])
-	# 	elif type(ds_size) == tuple:
-	# 		if len(ds_size) != n_conv:
-	# 			print('ERROR:: length of ds_size tuple does not match n_conv')
-	# 		else:
-	# 			self.ds_size = ds_size
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for ds_size. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(ds_stride) == int:
-	# 		self.ds_stride = tuple([ds_stride for x in range(n_conv)])
-	# 	elif type(ds_stride) == tuple:
-	# 		if len(ds_stride) != n_conv:
-	# 			print('ERROR:: length of ds_stride tuple does not match n_conv')
-	# 		else:
-	# 			self.ds_stride = ds_stride
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for ds_stride. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(fc_shape) == tuple:
-	# 		if len(fc_shape) < 1:
-	# 			print('ERROR:: insufficient values provided for fc_shape')
-	# 		else:
-	# 			self.fc_shape = fc_shape
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for fc_shape. Expected \'tuple\'.')
-
-	# 	## Fully Connected layer
-	# 	self.fc_weights = []	# This will be a list of np.array objects
 
 	def __init__(self,input_shape: tuple,learning_rate=0.01,cost_fn='mse'):
 		self.prepared = False
@@ -115,6 +30,7 @@ class CNN():
 		self.num_layers = {'total':0,'Conv':0,'Pool':0,'Flat':0,'FC':0}	# dict for counting number of each layer type
 
 		self.cost = None 	# Overall cost of whole model.
+
 
 	def add_layer(self,layer):
 		layer.model = self
@@ -180,10 +96,11 @@ class CNN():
 
 
 	@staticmethod
-	def loss(predictions,labels,loss_function):
+	def cost(predictions,labels,cost_function):
 		'''
 		Error of final output = y_label - y_pred
 		'''
+		# TODO
 		pass
 
 
@@ -281,11 +198,6 @@ class CNN():
 
 
 		def _backwards(self,cost_gradient):
-			if self.next_layer.LAYER_TYPE == 'FC':
-				# TODO: Then some kind of reshaping needs to happen. How is the cost gradient passed between FC and Pooling/ Conv Layers??
-				# cost_gradient = cost_gradient.reshape(...)
-				pass
-			
 			dCdF = []	# initiate as list then convert to np.array
 			for channel_index in range(self.padded_input.size[0]):
 				dCdF.append( CNN.convolve( self.padded_input[channel_index], cost_gradient[channel_index] ) )
@@ -293,13 +205,22 @@ class CNN():
 
 			self.filters = self.filters + dCdF	# ADJUSTING THE FILTERS
 			
+			# TODO: Find cost gradient wrt previous output.
 			flipped_F = self.
-			dCdX = 
+			dCdX = CNN.convolve( flipped_F, cost_gradient, full_convolve=True )# TODO: 180 deg rotate F fully convolved with cost gradient
+			
+			return dCdX
 
 
 	@staticmethod
-	def convolve(A, B, stride):
-		""" A and B are 2D arrays. Array B will be convolved over Array A using the stride provided. """
+	def convolve(A, B, stride,full_convolve=False):
+		""" A and B are 2D arrays. Array B will be convolved over Array A using the stride provided.
+			- 'full_convolve' is where the bottom right cell of B starts over the top of the top left cell of A and shifts by stride until the top left cell of B is over the bottom right cell of A. (i.e. A is padded in each dimension by B - 1 in the respective dimension). """
+		if full_convolve:
+			vertical_pad = B.shape[0] - 1
+			horizontal_pad = B.shape[1] - 1
+			A = np.pad(A,[(vertical_pad,vertical_pad),(horizontal_pad,horizontal_pad)],'constant')
+
 		arows, acols = A.shape
 		brows, bcols = B.shape
 
@@ -397,6 +318,7 @@ class CNN():
 			return self.output
 
 		def _backwards(self,cost_gradient):
+			# TODO: For MAX POOLING: gradient is 0 for all neurons lost at this layer and 1 for the neuron with the max value.
 			pass
 
 
@@ -447,10 +369,6 @@ class CNN():
 			
 
 		def _forwards(self,_input):
-			# if self.prev_layer.LAYER_TYPE in ('Conv','Pool'):
-			# 	self._input = _input.reshape((_input.size,1))
-			# else:
-			# 	self._input = _input
 			self._input = _input
 
 			self.output = CNN.activation( np.dot( self.weights, self._input ) + self.bias , activation=self.ACTIVATION )
@@ -459,7 +377,7 @@ class CNN():
 
 		def _backwards(self, cost_gradient):
 			"""
-			Take cost gradient dC/da (how the activation affects the cost)
+			Take cost gradient dC/da (how the activation affects the cost) and backpropogate
 			"""
 			dzdw = self.prev_layer.output	# Activation output of previous layer
 			z = np.multiply( self.weights, self.prev_layer.output ) + self.bias
@@ -474,7 +392,7 @@ class CNN():
 			dzda_prev = self.weights
 			
 			prev_cost_gradient = dzda_prev * dadz * dcda
-			return prev_cost_gradient	# Returns a 1D cost gradient array
+			return prev_cost_gradient	# NOTE: Returns a 1D cost gradient array
 
 
 
@@ -482,136 +400,214 @@ class CNN():
 
 # -------------------------------- ARCHIVED FUNCTIONS -----------------------------------
 
-	@staticmethod
-	def convolution(image,mask_arr,bias,stride=1,padding=0):
-		'''
-		Convolves each `mask` in 'mask_arr' over `image` by 'stride'
+# def __init__(self,n_conv,n_masks,mask_size,conv_stride,ds_size,ds_stride,fc_shape):
+	# 	'''
+	# 	Params:
+	# 		- n_conv: {int}; number of convolution layers (and downsampling layers)
+	# 		- n_masks: {int/tuple}; number of masks for convolution.
+	# 		- mask_size: {int/tuple}; size of masks for convolution.
+	# 		- conv_stride: {int/tuple}; stride length for convolution layers.
+	# 		- ds_size: {int/tuple}; size of filter window for downsampling layers.
+	# 		- ds_stride: {int/tuple}; stride length for downsampling layers.
+	# 		- fc_shape: {tuple}; indicating number of nodes for each layer of fully connected network, excluding input layer. 
+
+	# 	NOTE:: For {int/tuple} parameters: 'int' -> same value for each layer.
+	# 		'tuple' -> each value of the tuple is the specific value for that layer respectively.
+	# 	'''
+	# 	#################################################
+	# 	######## Standardise the parameters #############
+	# 	#################################################
+	# 	if type(n_masks) == int:
+	# 		self.n_masks = tuple([n_masks for x in range(n_conv)])
+	# 	elif type(n_masks) == tuple:
+	# 		if len(n_masks) != n_conv:
+	# 			print('ERROR:: length of n_masks tuple does not match n_conv')
+	# 		else:
+	# 			self.n_masks = n_masks
+	# 	else:
+	# 		print('ERROR:: Incorrect type provided for n_masks. Expected \'int\' or \'tuple\'.')
+
+	# 	if type(mask_size) == int:
+	# 		self.mask_size = tuple([mask_size for x in range(n_conv)])
+	# 	elif type(mask_size) == tuple:
+	# 		if len(mask_size) != n_conv:
+	# 			print('ERROR:: length of mask_size tuple does not match n_conv')
+	# 		else:
+	# 			self.mask_size = mask_size
+	# 	else:
+	# 		print('ERROR:: Incorrect type provided for mask_size. Expected \'int\' or \'tuple\'.')
+
+	# 	if type(conv_stride) == int:
+	# 		self.conv_stride = tuple([conv_stride for x in range(n_conv)])
+	# 	elif type(conv_stride) == tuple:
+	# 		if len(conv_stride) != n_conv:
+	# 			print('ERROR:: length of conv_stride tuple does not match n_conv')
+	# 		else:
+	# 			self.conv_stride = conv_stride
+	# 	else:
+	# 		print('ERROR:: Incorrect type provided for conv_stride. Expected \'int\' or \'tuple\'.')
+
+	# 	if type(ds_size) == int:
+	# 		self.ds_size = tuple([ds_size for x in range(n_conv)])
+	# 	elif type(ds_size) == tuple:
+	# 		if len(ds_size) != n_conv:
+	# 			print('ERROR:: length of ds_size tuple does not match n_conv')
+	# 		else:
+	# 			self.ds_size = ds_size
+	# 	else:
+	# 		print('ERROR:: Incorrect type provided for ds_size. Expected \'int\' or \'tuple\'.')
+
+	# 	if type(ds_stride) == int:
+	# 		self.ds_stride = tuple([ds_stride for x in range(n_conv)])
+	# 	elif type(ds_stride) == tuple:
+	# 		if len(ds_stride) != n_conv:
+	# 			print('ERROR:: length of ds_stride tuple does not match n_conv')
+	# 		else:
+	# 			self.ds_stride = ds_stride
+	# 	else:
+	# 		print('ERROR:: Incorrect type provided for ds_stride. Expected \'int\' or \'tuple\'.')
+
+	# 	if type(fc_shape) == tuple:
+	# 		if len(fc_shape) < 1:
+	# 			print('ERROR:: insufficient values provided for fc_shape')
+	# 		else:
+	# 			self.fc_shape = fc_shape
+	# 	else:
+	# 		print('ERROR:: Incorrect type provided for fc_shape. Expected \'tuple\'.')
+
+	# 	## Fully Connected layer
+	# 	self.fc_weights = []	# This will be a list of np.array objects
+
+	# @staticmethod
+	# def convolution(image,mask_arr,bias,stride=1,padding=0):
+	# 	'''
+	# 	Convolves each `mask` in 'mask_arr' over `image` by 'stride'
 		
-		Params
-			- image (np.arr): matrix of pixel values of the image.
-			- mask_arr (np.arr): array of masks (np.arr): matrix of values
-			- bias (np.arr): 1d array of bias values (1 bias for each mask)
-			- stride (int): integer value representing the number of pixels to step over on each move.
-		'''
+	# 	Params
+	# 		- image (np.arr): matrix of pixel values of the image.
+	# 		- mask_arr (np.arr): array of masks (np.arr): matrix of values
+	# 		- bias (np.arr): 1d array of bias values (1 bias for each mask)
+	# 		- stride (int): integer value representing the number of pixels to step over on each move.
+	# 	'''
 
-		# at this stage, imagine we have the mask already (it will just be passed to this function later on)
-		(num_masks, mask_channels, mask_rows, mask_cols) = mask_arr.shape
-		(img_channels,img_rows,img_cols) = image.shape
+	# 	# at this stage, imagine we have the mask already (it will just be passed to this function later on)
+	# 	(num_masks, mask_channels, mask_rows, mask_cols) = mask_arr.shape
+	# 	(img_channels,img_rows,img_cols) = image.shape
 
-		assert img_channels == mask_channels, "Masks must have the same number of channels as the image."
+	# 	assert img_channels == mask_channels, "Masks must have the same number of channels as the image."
 
-		# Pad the image
-		padded = np.pad(image,[(0,0),(padding,padding),(padding,padding)],'constant')
-		(_,pad_rows,pad_cols) = padded.shape
+	# 	# Pad the image
+	# 	padded = np.pad(image,[(0,0),(padding,padding),(padding,padding)],'constant')
+	# 	(_,pad_rows,pad_cols) = padded.shape
 
-		# Output dimensions are equal for square images and square masks - otherwise use respective dimension in calculation.
-		out_rows = int((img_rows + 2*padding - mask_rows)/stride) + 1	# 'int()' acts as 'floor' for the calculation.
-		out_cols = int((img_cols + 2*padding - mask_cols)/stride) + 1	# 'int()' acts as 'floor' for the calculation.
+	# 	# Output dimensions are equal for square images and square masks - otherwise use respective dimension in calculation.
+	# 	out_rows = int((img_rows + 2*padding - mask_rows)/stride) + 1	# 'int()' acts as 'floor' for the calculation.
+	# 	out_cols = int((img_cols + 2*padding - mask_cols)/stride) + 1	# 'int()' acts as 'floor' for the calculation.
 
-		output = np.zeros((num_masks,out_rows,out_cols))
+	# 	output = np.zeros((num_masks,out_rows,out_cols))
 
-		# Convolve each filter over the image (keep track of top left 'element')
-		for mask_index in range(num_masks):
-			mask = mask_arr[mask_index]
+	# 	# Convolve each filter over the image (keep track of top left 'element')
+	# 	for mask_index in range(num_masks):
+	# 		mask = mask_arr[mask_index]
 
-			# start with mask in top left corner
-			curr_y = out_y = 0	
-			while curr_y <= pad_rows - mask_rows:
-				curr_x = out_x = 0
-				while curr_x <= pad_cols - mask_cols:
-					for channel_index in range(mask_channels):
-						output[mask_index,out_y,out_x] += np.sum(padded[channel_index,curr_y:curr_y+mask_rows,curr_x:curr_x+mask_cols] * mask[channel_index])
-					output[mask_index,out_y,out_x] += bias[mask_index]	# Add the bias
-					curr_x += stride
-					out_x += 1
+	# 		# start with mask in top left corner
+	# 		curr_y = out_y = 0	
+	# 		while curr_y <= pad_rows - mask_rows:
+	# 			curr_x = out_x = 0
+	# 			while curr_x <= pad_cols - mask_cols:
+	# 				for channel_index in range(mask_channels):
+	# 					output[mask_index,out_y,out_x] += np.sum(padded[channel_index,curr_y:curr_y+mask_rows,curr_x:curr_x+mask_cols] * mask[channel_index])
+	# 				output[mask_index,out_y,out_x] += bias[mask_index]	# Add the bias
+	# 				curr_x += stride
+	# 				out_x += 1
 
-				curr_y += stride
-				out_y += 1
+	# 			curr_y += stride
+	# 			out_y += 1
 
-		return output	# a 3D array of the output matrices [1 for each mask].
+	# 	return output	# a 3D array of the output matrices [1 for each mask].
 
-	@staticmethod
-	def downsample(image,windowSize=2,stride=2,downsampling='maxpooling',padding='same'):
-		if type(windowSize) == int:
-			windowSize = (windowSize,windowSize)
-		elif type(windowSize) == tuple:
-			if len(windowSize) > 2:
-				print('-- WARNING:: tuple provided is too long. Only first 2 elements will be used.')
-				windowSize = windowSize[:2]
-		else:
-			raise TypeError('WindowSize argument has invalid type: %s was provided where int or tuple is expected.' % type(windowSize))
+	# @staticmethod
+	# def downsample(image,windowSize=2,stride=2,downsampling='maxpooling',padding='same'):
+	# 	if type(windowSize) == int:
+	# 		windowSize = (windowSize,windowSize)
+	# 	elif type(windowSize) == tuple:
+	# 		if len(windowSize) > 2:
+	# 			print('-- WARNING:: tuple provided is too long. Only first 2 elements will be used.')
+	# 			windowSize = windowSize[:2]
+	# 	else:
+	# 		raise TypeError('WindowSize argument has invalid type: %s was provided where int or tuple is expected.' % type(windowSize))
 		
-		(img_channels, img_rows, img_cols) = image.shape
+	# 	(img_channels, img_rows, img_cols) = image.shape
 
-		# Apply padding in 'same' mode to avoid dropping pixels in the case of odd dimensions. (favour below and right - same as Tensorflow)
-		if padding.lower() == 'same':
-			out_height = math.ceil(float(img_rows) / float(stride))
-			pad_rows_needed = max((out_height - 1) * stride + windowSize[0] - img_rows, 0)
-			nbelow = pad_rows_needed // 2	# // Floor division
-			nabove = math.ceil(pad_rows_needed / 2)
+	# 	# Apply padding in 'same' mode to avoid dropping pixels in the case of odd dimensions. (favour below and right - same as Tensorflow)
+	# 	if padding.lower() == 'same':
+	# 		out_height = math.ceil(float(img_rows) / float(stride))
+	# 		pad_rows_needed = max((out_height - 1) * stride + windowSize[0] - img_rows, 0)
+	# 		nbelow = pad_rows_needed // 2	# // Floor division
+	# 		nabove = math.ceil(pad_rows_needed / 2)
 
-			out_width = math.ceil(float(img_cols) / float(stride))
-			pad_cols_needed = max((out_width - 1) * stride + windowSize[1] - img_cols, 0)
-			nleft = pad_cols_needed // 2
-			nright = math.ceil(pad_cols_needed / 2)
+	# 		out_width = math.ceil(float(img_cols) / float(stride))
+	# 		pad_cols_needed = max((out_width - 1) * stride + windowSize[1] - img_cols, 0)
+	# 		nleft = pad_cols_needed // 2
+	# 		nright = math.ceil(pad_cols_needed / 2)
 
-			padded = np.pad(image,[(0,0),(nabove,nbelow),(nleft,nright)],'constant')
-		else:
-			padded = image
+	# 		padded = np.pad(image,[(0,0),(nabove,nbelow),(nleft,nright)],'constant')
+	# 	else:
+	# 		padded = image
 
-		(_,pad_rows,pad_cols) = padded.shape
+	# 	(_,pad_rows,pad_cols) = padded.shape
 
-		h_out = int((pad_rows - windowSize[0])/stride) + 1
-		w_out = int((pad_cols - windowSize[1])/stride) + 1
+	# 	h_out = int((pad_rows - windowSize[0])/stride) + 1
+	# 	w_out = int((pad_cols - windowSize[1])/stride) + 1
 
-		downsampled = np.zeros((img_channels,h_out,w_out))
+	# 	downsampled = np.zeros((img_channels,h_out,w_out))
 
-		# Shift 'Filter Window' over the image and perform the downsampling
-		curr_y = out_y = 0
-		while curr_y <= img_rows - windowSize[0]:
-			curr_x = out_x = 0
-			while curr_x <= img_cols - windowSize[1]:
-				for channel_index in range(img_channels):
-					if downsampling == 'maxpooling':
-						downsampled[channel_index,out_y,out_x] = np.max(image[channel_index,curr_y:curr_y+windowSize[0],curr_x:curr_x+windowSize[1]])
-					elif downsampling == 'meanpooling':
-						downsampled[channel_index,out_y,out_x] = np.mean(image[channel_index,curr_y:curr_y+windowSize[0],curr_x:curr_x+windowSize[1]])
+	# 	# Shift 'Filter Window' over the image and perform the downsampling
+	# 	curr_y = out_y = 0
+	# 	while curr_y <= img_rows - windowSize[0]:
+	# 		curr_x = out_x = 0
+	# 		while curr_x <= img_cols - windowSize[1]:
+	# 			for channel_index in range(img_channels):
+	# 				if downsampling == 'maxpooling':
+	# 					downsampled[channel_index,out_y,out_x] = np.max(image[channel_index,curr_y:curr_y+windowSize[0],curr_x:curr_x+windowSize[1]])
+	# 				elif downsampling == 'meanpooling':
+	# 					downsampled[channel_index,out_y,out_x] = np.mean(image[channel_index,curr_y:curr_y+windowSize[0],curr_x:curr_x+windowSize[1]])
 
-				curr_x += stride
-				out_x += 1
-			curr_y += stride
-			out_y += 1
+	# 			curr_x += stride
+	# 			out_x += 1
+	# 		curr_y += stride
+	# 		out_y += 1
 
-		return downsampled
+	# 	return downsampled
 
 
-	@staticmethod
-	def fully_connected_layer(input_arr,weights_arr,bias_arr):
-		'''
-		Params:
-			- input_arr: 1D array. 
-			- weights_arr: list of np.array(). Length = (No. layers - 1); No. rows = No. nodes in NEXT layer (b); No. cols = No. nodes in CURRENT layer (a).
-			- bias_arr: array of bias. No. bias = len(weights_arr)
-		'''
+	# @staticmethod
+	# def fully_connected_layer(input_arr,weights_arr,bias_arr):
+	# 	'''
+	# 	Params:
+	# 		- input_arr: 1D array. 
+	# 		- weights_arr: list of np.array(). Length = (No. layers - 1); No. rows = No. nodes in NEXT layer (b); No. cols = No. nodes in CURRENT layer (a).
+	# 		- bias_arr: array of bias. No. bias = len(weights_arr)
+	# 	'''
 
-		# Check that input_array is a column vector
-		if len(input_arr.shape) != 1:
-			(r,c) = input_arr.shape
-			assert len(input_arr.shape) > 2, "A matrix of incorrect shape was passed for 'input_arr'"
-			assert r+c == max(r,c) + 1, "input_arr must be a 1D array."
-		input_arr = input_arr.reshape(np.max(input_arr.shape),1)
+	# 	# Check that input_array is a column vector
+	# 	if len(input_arr.shape) != 1:
+	# 		(r,c) = input_arr.shape
+	# 		assert len(input_arr.shape) > 2, "A matrix of incorrect shape was passed for 'input_arr'"
+	# 		assert r+c == max(r,c) + 1, "input_arr must be a 1D array."
+	# 	input_arr = input_arr.reshape(np.max(input_arr.shape),1)
 
-		# Proceed through network...
-		values_a = input_arr
-		for layer_index in range(len(weights_arr)):	# Excluded output layer
-			weights = weights_arr[layer_index]	# np.array of weights between layer a and layer b
+	# 	# Proceed through network...
+	# 	values_a = input_arr
+	# 	for layer_index in range(len(weights_arr)):	# Excluded output layer
+	# 		weights = weights_arr[layer_index]	# np.array of weights between layer a and layer b
 
-			values_b = np.dot(weights,values_a)
+	# 		values_b = np.dot(weights,values_a)
 
-			# Add bias and pass through activiation. Initiate next layer with result
-			if layer_index != len(weights_arr) - 1:
-				values_a = CNN.activation( values_b + bias_arr[layer_index] , activation='relu')
-			else:
-				values_a = CNN.activation( values_b + bias_arr[layer_index] , activation='softmax')
+	# 		# Add bias and pass through activiation. Initiate next layer with result
+	# 		if layer_index != len(weights_arr) - 1:
+	# 			values_a = CNN.activation( values_b + bias_arr[layer_index] , activation='relu')
+	# 		else:
+	# 			values_a = CNN.activation( values_b + bias_arr[layer_index] , activation='softmax')
 
-		return values_a
+	# 	return values_a
