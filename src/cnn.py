@@ -206,8 +206,8 @@ class CNN():
 			self.filters = self.filters + dCdF	# ADJUSTING THE FILTERS
 			
 			# TODO: Find cost gradient wrt previous output.
-			flipped_F = self.
-			dCdX = CNN.convolve( flipped_F, cost_gradient, full_convolve=True )# TODO: 180 deg rotate F fully convolved with cost gradient
+			flipped_F = np.rot90( self.filters, 2 )	# TODO: Handle rotating the 3D filters array
+			dCdX = CNN.convolve( flipped_F, cost_gradient, full_convolve=True )
 			
 			return dCdX
 
