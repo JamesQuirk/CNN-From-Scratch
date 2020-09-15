@@ -8,16 +8,10 @@ This diagram below shows a high level view of the structure of a Convolutional N
 
 ![CNN Diagram](./imgs/CNN_Diagram.png)
 
-## TODO List
+Below is a quick sketch I made to help illustrate the flow through a CNN. The sketch depicts a simple input of shape 10x10 with a single convolutional layer using a filter of shape 3x3 and stride = 1. Then there is a pooling layer with a filter of shape 2x2 and stride 2 followed by a single fully connected layer before the binary output.
 
- - [ ] Write functions for forwards pass of the model.
-	- [x] func: convolution
-	- [x] func: pooling
-	- [x] Fully Connected Neural Network section - TEST
-	- [ ] Implement layer classes to enable computation graph method
- - [ ] Write processes for backpropagation
- - [ ] Test functions and debug
- - [ ] Aim for > 90% accuracy on MNIST
+![CNN Sketch](./imgs/CNN_Sketch.png)
+
 
 ## Reference Sources
 
