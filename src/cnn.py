@@ -18,30 +18,39 @@ class CNN():
 	"""
 
 	def __init__(self,input_shape: tuple,learning_rate=0.01,cost_fn='mse'):
+		assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
+
 		self.prepared = False
 
-		assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
 		self.INPUT_SHAPE = input_shape	# tuple to contain input shape
-		self._input = None
+		# self._input = None
 		self.LEARNING_RATE = learning_rate
-		self.cost_fn = cost_fn	# Cost function is somewhat arbitrary
+		self.cost_fn = cost_fn	# Cost function is somewhat arbitrary??
 
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
 		self.num_layers = {'total':0,'Conv':0,'Pool':0,'Flat':0,'FC':0}	# dict for counting number of each layer type
 
-		self.cost = None 	# Overall cost of whole model.
+		# self.overall_cost = None 	# Overall cost of whole model.
+		# self.example_cost = None	# Cost of individual example.
 
 
 	def add_layer(self,layer):
 		layer.model = self
 
 		if layer.LAYER_TYPE == 'FC' and self.structure[-1].LAYER_TYPE in ('Conv','Pool'):
+			# If no Flatten layer added before adding FC layer, one will be added automatically.
 			self.add_layer(CNN.Flatten_Layer())
 
 		self.structure.append(layer)
 		self.num_layers[layer.LAYER_TYPE] += 1
 		self.num_layers['total'] += 1
 
+		layer.model_structure_index = len(self.structure)-1
+
+		
+	def prepare_model(self):
+		""" Called once final layer is added, each layer can now iniate its weights and biases. """
+		print('Preparing model...')
 		if self.num_layers['total'] > 1:
 			for index in range(self.num_layers['total'] - 1):
 				curr_layer = self.structure[index]
@@ -49,26 +58,13 @@ class CNN():
 
 				curr_layer.next_layer = next_layer
 				next_layer.prev_layer = curr_layer
-
 		
-	def prepare_model(self):
-		""" Called once final layer is added, each layer can now iniate its weights and biases. """
-		for layer in self.structure:
+		for layer in self.structure:	# Combine with loop above??
+			print(f'Preparing Layer:: Type = {layer.LAYER_TYPE} | Structure index = {layer.model_structure_index}')
 			layer.prepare_layer()
 
 		self.prepared = True
-
-
-	def train(self,_input,_labels):
-		self._input = _input	# this is the input data (usually an 'image') that is passed to the CNN.
-		self._labels = _labels
-
-		# Forwards pass...
-		x = _input
-		for layer in self.structure:
-			x = layer._forwards(x)
-
-		# TODO: Calculate cost and backpropogate
+		print(f'Model Prepared: {self.prepared}')
 
 
 	@staticmethod
@@ -87,41 +83,93 @@ class CNN():
 				out = np.exp(arr)
 				return out / np.sum(out)
 			else:
+				# TODO: Define derivative
 				pass
 		elif activation == 'sigmoid':
 			if not derivative:
 				return 1 / (1 + np.exp(-arr))
 			else:
+				# TODO: Define derivative
 				pass
 
 
-	@staticmethod
-	def cost(predictions,labels,cost_function):
+	def train(self,_inputs,_labels,epochs,batch_size=None,shuffle=False):
 		'''
-		Error of final output = y_label - y_pred
+		Should take array of inputs and array of labels of the same length.
+
+		[For each epoch] For each input, propogate forwards and backwards.
+
+		ARGS:
+		- _inputs: (N,ch,row,cols). Where N is num examples, ch is num channels.
+		- _labels: (N,cat). e.g. ex1 label = [0,0,0,1,0] for 5 categories.
 		'''
-		# TODO
-		pass
+		if not self.prepared:
+			self.prepare_model()
+
+		# Check shapes and orientation are as expected
+		assert _inputs.shape[0] == _labels.shape[0], 'Dimension of input data and labels does not match.'
+
+		N = _inputs.shape[0]	# Total number of examples in _inputs
+
+		if batch_size is None:
+			num_batches = 1
+			batch_size = N
+		else:
+			assert type(batch_size) == int, 'An integer value must be supplied for argument "batch_size"'
+
+		# Forwards pass...
+		for epoch_ind in range(epochs):
+			print(f'------ EPOCH: {epoch_ind + 1} ------')
+			for batch_ind in range(num_batches):
+				ind_lower = batch_ind * batch_size	# Lower bound of index range
+				ind_upper = np.min([ batch_ind * batch_size + batch_size , N-1 ])	# Upper bound of index range
+				Xs = _inputs[ ind_lower : ind_upper ]
+				ys = _labels[ ind_lower : ind_upper ]
+				for ex_ind , X in enumerate(Xs):	# For each example (observation)
+					for layer in self.structure:
+						X = layer._forwards(X)
+
+					# Keep track of ERROR and ERROR^2 as the bases of the calculation for total cost and dcda.
+					ex_ERROR = (X - ys[ex_ind]).sum()
+					ex_ERROR_sqr = np.square(X - ys[ex_ind]).sum()
+					bat_ERROR += ex_ERROR
+					bat_ERROR_sqr += ex_ERROR_sqr
+
+				batch_cost = (1/batch_size) * bat_ERROR_sqr
+				batch_local_cost_gradient = (2/batch_size) * bat_ERROR	# partial diff of cost w.r.t. activation output of the layer
+				print(f'-- Batch: {batch_ind + 1} | Cost: {batch_cost}')
+
+				# Backpropagate the cost
+				dcda = batch_local_cost_gradient
+				for layer in self.structure:
+					dcda = layer._backwards(dcda)
+
+
+	def cost(predictions,labels,cost_function: str = 'mse', derivative=False):
+		'''
+		Cost function to provide measure of model 'correctness'.
+		'''
+		error = labels - predictions
+		if cost_function == 'mse':
+			cost = (np.square(labels - predictions)).sum() / predictions.size
+		
+		return cost	# returns scalar cost value.
 
 
 	class Conv_Layer:
-		def __init__(self,filt_size: tuple,num_filters: int,stride: int,padding: int=0,pad_type: str=None):
+		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None):
 			""" Padding is determined by the value of 'padding' argument unless 'pad_type' is specified. """
 			self.model = None
 
 			self.LAYER_TYPE = 'Conv'
-
-			self.FILT_SIZE = filt_size	# TODO: Need to ensure the filters have the same number of channels as the input image.
+			self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
 			self.NUM_FILTERS = num_filters
 			self.STRIDE = stride
 			self.PADDING = padding
-			self.PAD_TYPE = pad_type.lower()
-
-			filts = []
-			for _ in range(self.NUM_FILTERS):
-				filts.append( np.random.normal(size=self.FILT_SIZE) )
-			self.filters = np.array(filts)
-			self.bias = np.random.normal(size=(1,self.NUM_FILTERS))
+			if pad_type:
+				self.PAD_TYPE = pad_type.lower()
+			else:
+				self.PAD_TYPE = None
 
 			self.next_layer = None
 			self.prev_layer = None
@@ -135,28 +183,35 @@ class CNN():
 			else:
 				ishape = self.prev_layer.output.shape[-3:]		# (channels, rows, cols)
 
+			# Initiate filters
+			filts = []
+			for _ in range(self.NUM_FILTERS):
+				filts.append( np.random.normal(size=(ishape[0],self.FILT_SHAPE[0], self.FILT_SHAPE[1]) ) )
+			self.filters = np.array(filts)
+			self.bias = np.random.normal(size=(1,self.NUM_FILTERS))
+
 			# Need to account for padding.
 			if self.PAD_TYPE != None:
 				if self.PAD_TYPE == 'same':
 					out_cols = math.ceil(float(ishape[2]) / float(self.STRIDE))
-					pad_cols_needed = max((out_cols - 1) * self.STRIDE + self.FILT_SIZE[1] - ishape[2], 0)
+					pad_cols_needed = max((out_cols - 1) * self.STRIDE + self.FILT_SHAPE[1] - ishape[2], 0)
 					self.COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
 					self.COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
 
 					out_rows = math.ceil(float(ishape[1]) / float(self.STRIDE))
-					pad_rows_needed = max((out_rows - 1) * self.STRIDE + self.FILT_SIZE[0] - ishape[1], 0)
+					pad_rows_needed = max((out_rows - 1) * self.STRIDE + self.FILT_SHAPE[0] - ishape[1], 0)
 					self.ROW_DOWN_PAD = pad_rows_needed // 2	# // Floor division
 					self.ROW_UP_PAD = math.ceil(pad_rows_needed / 2)
 				elif self.PAD_TYPE == 'valid':
-					pass # TODO
+					pass # TODO: This allows the filter to fit into the input size an integer number of times?? CHECK.
 			else:
 				self.COL_LEFT_PAD = self.COL_RIGHT_PAD = self.ROW_UP_PAD = self.ROW_DOWN_PAD = self.PADDING
 
-			col_out = int((ishape[2] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SIZE[1]) / self.STRIDE) + 1
-			row_out = int((ishape[1] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SIZE[0]) / self.STRIDE) + 1
+			col_out = int((ishape[2] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
+			row_out = int((ishape[1] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
-			self.output = np.zeros(size=(self.NUM_FILTERS,row_out,col_out))	# Output initiated.
-
+			self.output = np.zeros(shape=(self.NUM_FILTERS,row_out,col_out))	# Output initiated.
+			print(self.output.shape)
 
 		def _forwards(self,_input):
 			self._input = _input
@@ -175,85 +230,72 @@ class CNN():
 				filt = self.filters[filt_index]
 				filt_channels, filt_rows, filt_cols = filt.shape
 
-				# # start with mask in top left corner
-				# curr_y = out_y = 0	# 'curr_y' is y position of the top left corner of filt on top of '_input'. 'out_y' is the respective y position in the output array.
-				# while curr_y <= proc_rows - filt_rows:
-				# 	curr_x = out_x = 0	# 'curr_x' is x position of the top left corner of filt on top of '_input'. 'out_x' is the respective x position in the output array.
-				# 	while curr_x <= proc_cols - filt_cols:
-				# 		for channel_index in range(filt_channels):
-				# 			self.output[filt_index,out_y,out_x] += np.sum(self.padded_input[channel_index,curr_y:curr_y+filt_rows,curr_x:curr_x+filt_cols] * filt[channel_index])
-				# 		self.output[filt_index,out_y,out_x] += self.bias[filt_index]	# Add the bias
-				# 		curr_x += self.STRIDE
-				# 		out_x += 1
-
-				# 	curr_y += self.STRIDE
-				# 	out_y += 1
-
 				for channel_index in range(filt_channels):
-					self.output[filt_index] += CNN.convolve( self.padded_input[channel_index], filt[channel_index], self.STRIDE )
+					self.output[filt_index] += Conv_Layer.convolve( self.padded_input[channel_index], filt[channel_index], self.STRIDE )
 				
 				self.output[filt_index] += self.bias[filt_index]
 
 				return self.output	# Output is 3D array of shape: ( NUM_FILTS, NUM_ROWS, NUM_COLS )
 
-
 		def _backwards(self,cost_gradient):
 			dCdF = []	# initiate as list then convert to np.array
 			for channel_index in range(self.padded_input.size[0]):
-				dCdF.append( CNN.convolve( self.padded_input[channel_index], cost_gradient[channel_index] ) )
+				dCdF.append( Conv_Layer.convolve( self.padded_input[channel_index], cost_gradient[channel_index] ) )
 			dCdF = np.array( dCdF )
 
-			self.filters = self.filters + dCdF	# ADJUSTING THE FILTERS
+			self.filters = self.filters + ( self.model.LEARNING_RATE * dCdF	) # ADJUSTING THE FILTERS
 			
-			# TODO: Find cost gradient wrt previous output.
-			flipped_F = np.rot90( self.filters, 2 )	# TODO: Handle rotating the 3D filters array
-			dCdX = CNN.convolve( flipped_F, cost_gradient, full_convolve=True )
+			# Find cost gradient wrt previous output.
+			rot_F = np.rot90( self.filters, k=2, axes=(1,2) )	# rotate 2x90 degs, rotating in direction of rows to columns.
+			dCdX = Conv_Layer.convolve( rot_F, cost_gradient, full_convolve=True )
 			
 			return dCdX
 
+		@staticmethod
+		def convolve(A, B, stride,full_convolve=False):
+			""" A and B are 2D arrays. Array B will be convolved over Array A using the stride provided.
+				- 'full_convolve' is where the bottom right cell of B starts over the top of the top left cell of A and shifts by stride until the top left cell of B is over the bottom right cell of A. (i.e. A is padded in each dimension by B - 1 in the respective dimension). """
+			if full_convolve:
+				vertical_pad = B.shape[0] - 1
+				horizontal_pad = B.shape[1] - 1
+				A = np.pad(A,[(vertical_pad,vertical_pad),(horizontal_pad,horizontal_pad)],'constant')
 
-	@staticmethod
-	def convolve(A, B, stride,full_convolve=False):
-		""" A and B are 2D arrays. Array B will be convolved over Array A using the stride provided.
-			- 'full_convolve' is where the bottom right cell of B starts over the top of the top left cell of A and shifts by stride until the top left cell of B is over the bottom right cell of A. (i.e. A is padded in each dimension by B - 1 in the respective dimension). """
-		if full_convolve:
-			vertical_pad = B.shape[0] - 1
-			horizontal_pad = B.shape[1] - 1
-			A = np.pad(A,[(vertical_pad,vertical_pad),(horizontal_pad,horizontal_pad)],'constant')
+			arows, acols = A.shape
+			brows, bcols = B.shape
 
-		arows, acols = A.shape
-		brows, bcols = B.shape
+			rout = int((arows - brows) / stride) + 1
+			cout = int((acols - bcols) / stride) + 1
 
-		rout = int((arows - brows) / stride) + 1
-		cout = int((acols - bcols) / stride) + 1
+			output = np.zeros(shape=(rout,cout))
 
-		output = np.zeros(shape=(rout,cout))
+			# start with mask in top left corner
+			curr_y = out_y = 0	# 'curr_y' is y position of the top left corner of filt on top of '_input'. 'out_y' is the corresponding y position in the output array.
+			while curr_y <= arows - brows:
+				curr_x = out_x = 0	# 'curr_x' is x position of the top left corner of filt on top of '_input'. 'out_x' is the corresponding x position in the output array.
+				while curr_x <= acols - bcols:
+					output[out_y,out_x] += np.sum( A[ curr_y : curr_y + brows, curr_x : curr_x + bcols ] * B)
+					curr_x += stride
+					out_x += 1
 
-		# start with mask in top left corner
-		curr_y = out_y = 0	# 'curr_y' is y position of the top left corner of filt on top of '_input'. 'out_y' is the respective y position in the output array.
-		while curr_y <= arows - brows:
-			curr_x = out_x = 0	# 'curr_x' is x position of the top left corner of filt on top of '_input'. 'out_x' is the respective x position in the output array.
-			while curr_x <= acols - bcols:
-				output[out_y,out_x] += np.sum( A[ curr_y : curr_y + brows, curr_x : curr_x + bcols ] * B)
-				curr_x += stride
-				out_x += 1
+				curr_y += stride
+				out_y += 1
 
-			curr_y += stride
-			out_y += 1
-
-		return output
+			return output
 
 	
 	class Pool_Layer:
-		def __init__(self,filt_size: tuple,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None):
+		def __init__(self,filt_shape: tuple,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None):
 			self.model = None
 
 			self.LAYER_TYPE = 'Pool'
-			self.FILT_SIZE = filt_size
+			self.FILT_SHAPE = filt_shape	# 2D array (rows,cols)
 			self.STRIDE = stride
 			self.POOL_TYPE = pool_type.lower()
 			self.PADDING = padding
-			self.PAD_TYPE = pad_type.lower()
+			if pad_type:
+				self.PAD_TYPE = pad_type.lower()
+			else:
+				self.PAD_TYPE = None
 
 			self.next_layer = None
 			self.prev_layer = None
@@ -269,21 +311,22 @@ class CNN():
 			if self.PAD_TYPE != None:
 				if self.PAD_TYPE == 'same':
 					out_cols = math.ceil(float(ishape[2]) / float(self.STRIDE))
-					pad_cols_needed = max((out_cols - 1) * self.STRIDE + self.FILT_SIZE[1] - ishape[2], 0)
+					pad_cols_needed = max((out_cols - 1) * self.STRIDE + self.FILT_SHAPE[1] - ishape[2], 0)
 					self.COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
 					self.COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
 
 					out_rows = math.ceil(float(ishape[1]) / float(self.STRIDE))
-					pad_rows_needed = max((out_rows - 1) * self.STRIDE + self.FILT_SIZE[0] - ishape[1], 0)
+					pad_rows_needed = max((out_rows - 1) * self.STRIDE + self.FILT_SHAPE[0] - ishape[1], 0)
 					self.ROW_DOWN_PAD = pad_rows_needed // 2	# // Floor division
 					self.ROW_UP_PAD = math.ceil(pad_rows_needed / 2)
 			else:
 				self.COL_LEFT_PAD = self.COL_RIGHT_PAD = self.ROW_UP_PAD = self.ROW_DOWN_PAD = self.PADDING
 
-			col_out = int((ishape[2] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SIZE[1]) / self.STRIDE) + 1
-			row_out = int((ishape[1] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SIZE[0]) / self.STRIDE) + 1
+			col_out = int((ishape[2] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
+			row_out = int((ishape[1] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
-			self.output = np.zeros(size=(ishape[0],row_out,col_out))	# Output initiated.
+			self.output = np.zeros(shape=(ishape[0],row_out,col_out))	# Output initiated.
+			print(self.output.shape)
 
 
 		def _forwards(self,_input):
@@ -291,24 +334,26 @@ class CNN():
 
 			# Apply the padding to the input.
 			if _input.ndim == 3:
-				padded_input = np.pad(_input,[(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant')
+				self.padded_input = np.pad(_input,[(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant')
 			elif _input.ndim == 2:
-				padded_input = np.pad(_input,[(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant')
+				self.padded_input = np.pad(_input,[(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant')
 			else:
 				print('---ERROR:: _input array does not have a suitable number of dimensions.')
 
-			channels, proc_rows, proc_cols = padded_input.shape
+			channels, proc_rows, proc_cols = self.padded_input.shape
 
 			# Shift 'Filter Window' over the image and perform the downsampling
 			curr_y = out_y = 0
-			while curr_y <= proc_rows - self.FILT_SIZE[0]:
+			while curr_y <= proc_rows - self.FILT_SHAPE[0]:
 				curr_x = out_x = 0
-				while curr_x <= proc_cols - self.FILT_SIZE[1]:
+				while curr_x <= proc_cols - self.FILT_SHAPE[1]:
 					for channel_index in range(channels):
 						if self.POOL_TYPE == 'max':
-							self.output[channel_index, out_y, out_x] = np.max( padded_input[ channel_index, curr_y : curr_y + self.FILT_SIZE[0], curr_x : curr_x+ self.FILT_SIZE[1] ] )
+							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+							self.output[channel_index, out_y, out_x] = np.max( sub_arr )
 						elif self.POOL_TYPE == 'mean':
-							self.output[channel_index, out_y, out_x] = np.mean( padded_input[ channel_index, curr_y : curr_y + self.FILT_SIZE[0], curr_x : curr_x + self.FILT_SIZE[1] ] )
+							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+							self.output[channel_index, out_y, out_x] = np.mean( sub_arr )
 
 					curr_x += self.STRIDE
 					out_x += 1
@@ -318,8 +363,55 @@ class CNN():
 			return self.output
 
 		def _backwards(self,cost_gradient):
-			# TODO: For MAX POOLING: gradient is 0 for all neurons lost at this layer and 1 for the neuron with the max value.
-			pass
+			'''
+			Backprop in pooling layer:
+			- nothing to be updated as there are no weights in this layer.
+			- just need to propogate the cost gradient backwards.
+
+			Cost gradient received as an array in the same shape as this layer's output. Need to 'fill in the blanks' as this layer removed data in the forwards pass.
+
+			If Pooling is MAX:
+			- The responsibility of the whole cost gradient associated with the given region of the input is with the node with the maximum value.
+			- All others will have cost gradient of 0.
+
+			If Pooling is MEAN:
+			- The responsibility will be split between the nodes; weighted by the proportion of each value to the total for the region.
+			'''
+			# Initiate to input shape.
+			prev_cost_gradient = np.zeros_like(self.padded_input)
+
+			channels, rows, cols = prev_cost_gradient.shape
+
+			# Step over the array similarly to the forwards pass and compute the expanded cost gradients.
+			curr_y = cost_y = 0
+			while curr_y <= rows - self.FILT_SHAPE[0]:
+				curr_x = cost_x = 0
+				while curr_x <= cols - self.FILT_SHAPE[1]:
+					for channel_index in range(channels):
+						if self.POOL_TYPE == 'max':
+							# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
+							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+							max_node_y, max_node_x = np.array( np.unravel_index( sub_arr, sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
+
+							cost_val = cost_gradient[channel_index,cost_y,cost_x]
+
+							prev_cost_gradient[channel_index, max_node_y, max_node_x] += cost_val
+							
+						elif self.POOL_TYPE == 'mean':
+							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+
+							cost_val = cost_gradient[channel_index,cost_y,cost_x]
+							
+							sub_arr_props = sub_arr / sub_arr.sum()
+
+							prev_cost_gradient[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += sub_arr_props * cost_val
+
+					curr_x += self.STRIDE
+					cost_x += 1
+				curr_y += self.STRIDE
+				cost_y += 1
+
+				return prev_cost_gradient
 
 
 	class Flatten_Layer:
@@ -332,13 +424,14 @@ class CNN():
 			self.prev_layer = None
 
 		def prepare_layer(self):
-			pass # No prep needed.
+			self.output = np.zeros(shape=(self.prev_layer.output.size,1))
+			pass 
 
 		def _forwards(self,_input):
-			return _input.reshape((_input.size,1))
+			return _input.reshape((_input.size,1))	# NOTE: Vertical array
 
 		def _backwards(self,cost_gradient):
-			# TODO: should reshape cost_gradient?
+			return cost_gradient.reshape(self.prepare_layer.output.shape)	# TODO: Test
 
 
 	class FC_Layer:
@@ -358,6 +451,7 @@ class CNN():
 			self.weights = None
 			self.bias = None
 
+			self.output = np.zeros(shape=(n,1))
 
 		def prepare_layer(self):
 			""" Initiate weights and biases randomly"""
@@ -366,7 +460,7 @@ class CNN():
 			self.weights = np.random.normal(size=(w_rows,w_cols))
 
 			self.bias = np.random.normal(size=(1,self.NUM_NODES))
-			
+			print(self.output.shape)
 
 		def _forwards(self,_input):
 			self._input = _input
@@ -386,228 +480,12 @@ class CNN():
 			
 			dcdw = dzdw * dadz * dcda	# Chain rule.
 
-			self.weights = self.weights - self.model.LEARNING_RATE * dcdw
+			self.weights = self.weights - ( self.model.LEARNING_RATE * dcdw )
 			
 			# calculate cost_gradient wrt previous layer
-			dzda_prev = self.weights
-			
+			dzda_prev = self.weights	# TODO: CHECK THIS??
 			prev_cost_gradient = dzda_prev * dadz * dcda
+
 			return prev_cost_gradient	# NOTE: Returns a 1D cost gradient array
 
 
-
-
-
-# -------------------------------- ARCHIVED FUNCTIONS -----------------------------------
-
-# def __init__(self,n_conv,n_masks,mask_size,conv_stride,ds_size,ds_stride,fc_shape):
-	# 	'''
-	# 	Params:
-	# 		- n_conv: {int}; number of convolution layers (and downsampling layers)
-	# 		- n_masks: {int/tuple}; number of masks for convolution.
-	# 		- mask_size: {int/tuple}; size of masks for convolution.
-	# 		- conv_stride: {int/tuple}; stride length for convolution layers.
-	# 		- ds_size: {int/tuple}; size of filter window for downsampling layers.
-	# 		- ds_stride: {int/tuple}; stride length for downsampling layers.
-	# 		- fc_shape: {tuple}; indicating number of nodes for each layer of fully connected network, excluding input layer. 
-
-	# 	NOTE:: For {int/tuple} parameters: 'int' -> same value for each layer.
-	# 		'tuple' -> each value of the tuple is the specific value for that layer respectively.
-	# 	'''
-	# 	#################################################
-	# 	######## Standardise the parameters #############
-	# 	#################################################
-	# 	if type(n_masks) == int:
-	# 		self.n_masks = tuple([n_masks for x in range(n_conv)])
-	# 	elif type(n_masks) == tuple:
-	# 		if len(n_masks) != n_conv:
-	# 			print('ERROR:: length of n_masks tuple does not match n_conv')
-	# 		else:
-	# 			self.n_masks = n_masks
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for n_masks. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(mask_size) == int:
-	# 		self.mask_size = tuple([mask_size for x in range(n_conv)])
-	# 	elif type(mask_size) == tuple:
-	# 		if len(mask_size) != n_conv:
-	# 			print('ERROR:: length of mask_size tuple does not match n_conv')
-	# 		else:
-	# 			self.mask_size = mask_size
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for mask_size. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(conv_stride) == int:
-	# 		self.conv_stride = tuple([conv_stride for x in range(n_conv)])
-	# 	elif type(conv_stride) == tuple:
-	# 		if len(conv_stride) != n_conv:
-	# 			print('ERROR:: length of conv_stride tuple does not match n_conv')
-	# 		else:
-	# 			self.conv_stride = conv_stride
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for conv_stride. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(ds_size) == int:
-	# 		self.ds_size = tuple([ds_size for x in range(n_conv)])
-	# 	elif type(ds_size) == tuple:
-	# 		if len(ds_size) != n_conv:
-	# 			print('ERROR:: length of ds_size tuple does not match n_conv')
-	# 		else:
-	# 			self.ds_size = ds_size
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for ds_size. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(ds_stride) == int:
-	# 		self.ds_stride = tuple([ds_stride for x in range(n_conv)])
-	# 	elif type(ds_stride) == tuple:
-	# 		if len(ds_stride) != n_conv:
-	# 			print('ERROR:: length of ds_stride tuple does not match n_conv')
-	# 		else:
-	# 			self.ds_stride = ds_stride
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for ds_stride. Expected \'int\' or \'tuple\'.')
-
-	# 	if type(fc_shape) == tuple:
-	# 		if len(fc_shape) < 1:
-	# 			print('ERROR:: insufficient values provided for fc_shape')
-	# 		else:
-	# 			self.fc_shape = fc_shape
-	# 	else:
-	# 		print('ERROR:: Incorrect type provided for fc_shape. Expected \'tuple\'.')
-
-	# 	## Fully Connected layer
-	# 	self.fc_weights = []	# This will be a list of np.array objects
-
-	# @staticmethod
-	# def convolution(image,mask_arr,bias,stride=1,padding=0):
-	# 	'''
-	# 	Convolves each `mask` in 'mask_arr' over `image` by 'stride'
-		
-	# 	Params
-	# 		- image (np.arr): matrix of pixel values of the image.
-	# 		- mask_arr (np.arr): array of masks (np.arr): matrix of values
-	# 		- bias (np.arr): 1d array of bias values (1 bias for each mask)
-	# 		- stride (int): integer value representing the number of pixels to step over on each move.
-	# 	'''
-
-	# 	# at this stage, imagine we have the mask already (it will just be passed to this function later on)
-	# 	(num_masks, mask_channels, mask_rows, mask_cols) = mask_arr.shape
-	# 	(img_channels,img_rows,img_cols) = image.shape
-
-	# 	assert img_channels == mask_channels, "Masks must have the same number of channels as the image."
-
-	# 	# Pad the image
-	# 	padded = np.pad(image,[(0,0),(padding,padding),(padding,padding)],'constant')
-	# 	(_,pad_rows,pad_cols) = padded.shape
-
-	# 	# Output dimensions are equal for square images and square masks - otherwise use respective dimension in calculation.
-	# 	out_rows = int((img_rows + 2*padding - mask_rows)/stride) + 1	# 'int()' acts as 'floor' for the calculation.
-	# 	out_cols = int((img_cols + 2*padding - mask_cols)/stride) + 1	# 'int()' acts as 'floor' for the calculation.
-
-	# 	output = np.zeros((num_masks,out_rows,out_cols))
-
-	# 	# Convolve each filter over the image (keep track of top left 'element')
-	# 	for mask_index in range(num_masks):
-	# 		mask = mask_arr[mask_index]
-
-	# 		# start with mask in top left corner
-	# 		curr_y = out_y = 0	
-	# 		while curr_y <= pad_rows - mask_rows:
-	# 			curr_x = out_x = 0
-	# 			while curr_x <= pad_cols - mask_cols:
-	# 				for channel_index in range(mask_channels):
-	# 					output[mask_index,out_y,out_x] += np.sum(padded[channel_index,curr_y:curr_y+mask_rows,curr_x:curr_x+mask_cols] * mask[channel_index])
-	# 				output[mask_index,out_y,out_x] += bias[mask_index]	# Add the bias
-	# 				curr_x += stride
-	# 				out_x += 1
-
-	# 			curr_y += stride
-	# 			out_y += 1
-
-	# 	return output	# a 3D array of the output matrices [1 for each mask].
-
-	# @staticmethod
-	# def downsample(image,windowSize=2,stride=2,downsampling='maxpooling',padding='same'):
-	# 	if type(windowSize) == int:
-	# 		windowSize = (windowSize,windowSize)
-	# 	elif type(windowSize) == tuple:
-	# 		if len(windowSize) > 2:
-	# 			print('-- WARNING:: tuple provided is too long. Only first 2 elements will be used.')
-	# 			windowSize = windowSize[:2]
-	# 	else:
-	# 		raise TypeError('WindowSize argument has invalid type: %s was provided where int or tuple is expected.' % type(windowSize))
-		
-	# 	(img_channels, img_rows, img_cols) = image.shape
-
-	# 	# Apply padding in 'same' mode to avoid dropping pixels in the case of odd dimensions. (favour below and right - same as Tensorflow)
-	# 	if padding.lower() == 'same':
-	# 		out_height = math.ceil(float(img_rows) / float(stride))
-	# 		pad_rows_needed = max((out_height - 1) * stride + windowSize[0] - img_rows, 0)
-	# 		nbelow = pad_rows_needed // 2	# // Floor division
-	# 		nabove = math.ceil(pad_rows_needed / 2)
-
-	# 		out_width = math.ceil(float(img_cols) / float(stride))
-	# 		pad_cols_needed = max((out_width - 1) * stride + windowSize[1] - img_cols, 0)
-	# 		nleft = pad_cols_needed // 2
-	# 		nright = math.ceil(pad_cols_needed / 2)
-
-	# 		padded = np.pad(image,[(0,0),(nabove,nbelow),(nleft,nright)],'constant')
-	# 	else:
-	# 		padded = image
-
-	# 	(_,pad_rows,pad_cols) = padded.shape
-
-	# 	h_out = int((pad_rows - windowSize[0])/stride) + 1
-	# 	w_out = int((pad_cols - windowSize[1])/stride) + 1
-
-	# 	downsampled = np.zeros((img_channels,h_out,w_out))
-
-	# 	# Shift 'Filter Window' over the image and perform the downsampling
-	# 	curr_y = out_y = 0
-	# 	while curr_y <= img_rows - windowSize[0]:
-	# 		curr_x = out_x = 0
-	# 		while curr_x <= img_cols - windowSize[1]:
-	# 			for channel_index in range(img_channels):
-	# 				if downsampling == 'maxpooling':
-	# 					downsampled[channel_index,out_y,out_x] = np.max(image[channel_index,curr_y:curr_y+windowSize[0],curr_x:curr_x+windowSize[1]])
-	# 				elif downsampling == 'meanpooling':
-	# 					downsampled[channel_index,out_y,out_x] = np.mean(image[channel_index,curr_y:curr_y+windowSize[0],curr_x:curr_x+windowSize[1]])
-
-	# 			curr_x += stride
-	# 			out_x += 1
-	# 		curr_y += stride
-	# 		out_y += 1
-
-	# 	return downsampled
-
-
-	# @staticmethod
-	# def fully_connected_layer(input_arr,weights_arr,bias_arr):
-	# 	'''
-	# 	Params:
-	# 		- input_arr: 1D array. 
-	# 		- weights_arr: list of np.array(). Length = (No. layers - 1); No. rows = No. nodes in NEXT layer (b); No. cols = No. nodes in CURRENT layer (a).
-	# 		- bias_arr: array of bias. No. bias = len(weights_arr)
-	# 	'''
-
-	# 	# Check that input_array is a column vector
-	# 	if len(input_arr.shape) != 1:
-	# 		(r,c) = input_arr.shape
-	# 		assert len(input_arr.shape) > 2, "A matrix of incorrect shape was passed for 'input_arr'"
-	# 		assert r+c == max(r,c) + 1, "input_arr must be a 1D array."
-	# 	input_arr = input_arr.reshape(np.max(input_arr.shape),1)
-
-	# 	# Proceed through network...
-	# 	values_a = input_arr
-	# 	for layer_index in range(len(weights_arr)):	# Excluded output layer
-	# 		weights = weights_arr[layer_index]	# np.array of weights between layer a and layer b
-
-	# 		values_b = np.dot(weights,values_a)
-
-	# 		# Add bias and pass through activiation. Initiate next layer with result
-	# 		if layer_index != len(weights_arr) - 1:
-	# 			values_a = CNN.activation( values_b + bias_arr[layer_index] , activation='relu')
-	# 		else:
-	# 			values_a = CNN.activation( values_b + bias_arr[layer_index] , activation='softmax')
-
-	# 	return values_a
