@@ -13,7 +13,7 @@ Below is a quick sketch I made to help illustrate the flow through a CNN. The sk
 ![CNN Sketch](./imgs/CNN_Sketch.png)
 
 
-## Reference Sources
+## Useful References
 
  - [TowardsDataScience - Convolutional Neural Networks from the ground up](https://towardsdatascience.com/convolutional-neural-networks-from-the-ground-up-c67bb41454e1)
 
@@ -27,4 +27,4 @@ Below is a quick sketch I made to help illustrate the flow through a CNN. The sk
  
  - [Convolutions and Backpropagations](https://medium.com/@pavisj/convolutions-and-backpropagations-46026a8f5d2c)
  
- 
+ - [3Blue1Brown Backpropagation calculus](https://www.youtube.com/watch?v=tIeHLnjs5U8)
