@@ -1,4 +1,5 @@
 from src.cnn import CNN
+import numpy as np
 
 def test_add_layer_1():
 	model = CNN((3,12,12))
@@ -75,8 +76,80 @@ def test_prepare_model():
 	assert L4.prev_layer == L3
 	assert L4.next_layer == None
 
-def test_activation():
-	pass
+def test_activation_relu():
+	arr1 = np.arange(-9,9)
+	arr2 = arr1.reshape((2,3,3))
+
+	assert ( CNN.activation(arr1, activation='relu',derivative=False) == np.array([0,0,0,0,0,0,0,0,0,0,1,2,3,4,5,6,7,8]) ).all()
+
+	assert (CNN.activation(arr2, activation='relu',derivative=False) == np.array([
+			[
+				[0,0,0],
+				[0,0,0],
+				[0,0,0]
+			],
+			[
+				[0,1,2],
+				[3,4,5],
+				[6,7,8]
+			]
+		]
+	)).all()
+
+	assert ( CNN.activation(arr1, activation='relu',derivative=True) == np.array([0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1]) ).all()
+
+	assert (CNN.activation(arr2, activation='relu', derivative=True) == np.array(
+		[
+			[
+				[0,0,0],
+				[0,0,0],
+				[0,0,0]
+			],
+			[
+				[0,1,1],
+				[1,1,1],
+				[1,1,1]
+			]
+		]
+	)).all()
+
+def test_activation_softmax():
+	# TODO: arrays not correct yet - calculate expected output.
+	arr1 = np.arange(-9,9)
+	arr2 = arr1.reshape((2,3,3))
+
+	assert ( CNN.activation(arr1, activation='softmax',derivative=False) == np.array([0,0,0,0,0,0,0,0,0,0,1,2,3,4,5,6,7,8]) ).all()
+
+	assert (CNN.activation(arr2, activation='softmax',derivative=False) == np.array([
+			[
+				[0,0,0],
+				[0,0,0],
+				[0,0,0]
+			],
+			[
+				[0,1,2],
+				[3,4,5],
+				[6,7,8]
+			]
+		]
+	)).all()
+
+	assert ( CNN.activation(arr1, activation='softmax',derivative=True) == np.array([0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1]) ).all()
+
+	assert (CNN.activation(arr2, activation='softmax', derivative=True) == np.array(
+		[
+			[
+				[0,0,0],
+				[0,0,0],
+				[0,0,0]
+			],
+			[
+				[0,1,1],
+				[1,1,1],
+				[1,1,1]
+			]
+		]
+	)).all()
 
 if __name__ == '__main__':
 	pass

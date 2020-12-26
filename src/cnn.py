@@ -23,16 +23,14 @@ class CNN():
 		self.prepared = False
 
 		self.INPUT_SHAPE = input_shape	# tuple to contain input shape
-		# self._input = None
 		self.LEARNING_RATE = learning_rate
-		self.cost_fn = cost_fn	# Cost function is somewhat arbitrary??
+		self.cost_fn = cost_fn
 
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
 		self.num_layers = {'total':0,'Conv':0,'Pool':0,'Flat':0,'FC':0}	# dict for counting number of each layer type
 
 		# self.overall_cost = None 	# Overall cost of whole model.
 		# self.example_cost = None	# Cost of individual example.
-
 
 	def add_layer(self,layer):
 		layer.model = self
@@ -46,7 +44,6 @@ class CNN():
 		self.num_layers['total'] += 1
 
 		layer.model_structure_index = len(self.structure)-1
-
 		
 	def prepare_model(self):
 		""" Called once final layer is added, each layer can now iniate its weights and biases. """
@@ -66,7 +63,6 @@ class CNN():
 		self.prepared = True
 		print(f'Model Prepared: {self.prepared}')
 
-
 	@staticmethod
 	def activation(arr,activation,derivative=False):
 		# Pass arr through activation function
@@ -75,13 +71,13 @@ class CNN():
 				arr[arr<0] = 0
 				return arr
 			else:
-				arr[arr <= 0] = 0	# technically diff. relu is undefined for x = 0, but for the sake of this we use 0 (chances of the weights being exactly 0 is very unlikely anyway.)
+				arr[arr <= 0] = 0	# technically diff. relu is undefined for x = 0, but for the sake of this we use 0 (chances of the weights being exactly 0 is very unlikely anyway).
 				arr[arr > 0] = 1
 				return arr
 		elif activation == 'softmax':
 			if not derivative:
-				out = np.exp(arr)
-				return out / np.sum(out)
+				exp = np.exp(arr)
+				return exp / np.sum(exp)
 			else:
 				# TODO: Define derivative
 				pass
@@ -92,69 +88,69 @@ class CNN():
 				# TODO: Define derivative
 				pass
 
-
-	def train(self,_inputs,_labels,epochs,batch_size=None,shuffle=False):
+	def train(self,Xs,ys,epochs,batch_size=None,shuffle=False):
 		'''
 		Should take array of inputs and array of labels of the same length.
 
 		[For each epoch] For each input, propogate forwards and backwards.
 
 		ARGS:
-		- _inputs: (N,ch,row,cols). Where N is num examples, ch is num channels.
-		- _labels: (N,cat). e.g. ex1 label = [0,0,0,1,0] for 5 categories.
+		- Xs: (N,ch,row,cols). Where N is num examples, ch is num channels.
+		- ys: (N,num_categories). e.g. ex1 label = [0,0,0,1,0] for 5 categories.
 		'''
 		if not self.prepared:
 			self.prepare_model()
 
 		# Check shapes and orientation are as expected
-		assert _inputs.shape[0] == _labels.shape[0], 'Dimension of input data and labels does not match.'
+		assert Xs.shape[0] == ys.shape[0], 'Dimension of input data and labels does not match.'
 
-		N = _inputs.shape[0]	# Total number of examples in _inputs
+		N = Xs.shape[0]	# Total number of examples in Xs
 
 		if batch_size is None:
 			num_batches = 1
-			batch_size = N
+			self.batch_size = N
 		else:
-			assert type(batch_size) == int, 'An integer value must be supplied for argument "batch_size"'
+			assert int(batch_size) == batch_size, 'An integer value must be supplied for argument "batch_size"'
+			self.batch_size = batch_size
 
 		# Forwards pass...
 		for epoch_ind in range(epochs):
 			print(f'------ EPOCH: {epoch_ind + 1} ------')
 			for batch_ind in range(num_batches):
-				ind_lower = batch_ind * batch_size	# Lower bound of index range
-				ind_upper = np.min([ batch_ind * batch_size + batch_size , N-1 ])	# Upper bound of index range
-				Xs = _inputs[ ind_lower : ind_upper ]
-				ys = _labels[ ind_lower : ind_upper ]
-				for ex_ind , X in enumerate(Xs):	# For each example (observation)
+				ind_lower = batch_ind * self.batch_size	# Lower bound of index range
+				ind_upper = np.min([ batch_ind * self.batch_size + self.batch_size , N-1 ])	# Upper bound of index range
+
+				batch_Xs = Xs[ ind_lower : ind_upper ]
+				batch_ys = ys[ ind_lower : ind_upper ]
+
+				cost = 0
+				cost_gradient = 0
+
+				for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
 					for layer in self.structure:
 						X = layer._forwards(X)
 
-					# Keep track of ERROR and ERROR^2 as the bases of the calculation for total cost and dcda.
-					ex_ERROR = (X - ys[ex_ind]).sum()
-					ex_ERROR_sqr = np.square(X - ys[ex_ind]).sum()
-					bat_ERROR += ex_ERROR
-					bat_ERROR_sqr += ex_ERROR_sqr
+					cost += self.cost(X, batch_ys[ex_ind])
+					cost_gradient += self.cost(X, batch_ys[ex_ind],derivative=True)	# partial diff of cost w.r.t. activation output of the layer
 
-				batch_cost = (1/batch_size) * bat_ERROR_sqr
-				batch_local_cost_gradient = (2/batch_size) * bat_ERROR	# partial diff of cost w.r.t. activation output of the layer
-				print(f'-- Batch: {batch_ind + 1} | Cost: {batch_cost}')
+				print(f'-- Batch: {batch_ind + 1} | Cost: {cost}')
 
 				# Backpropagate the cost
-				dcda = batch_local_cost_gradient
+				dcda = cost_gradient
 				for layer in self.structure:
 					dcda = layer._backwards(dcda)
 
-
-	def cost(predictions,labels,cost_function: str = 'mse', derivative=False):
+	def cost(self,prediction,label,derivative=False):
 		'''
-		Cost function to provide measure of model 'correctness'.
+		Cost function to provide measure of model 'correctness'. returns scalar cost value.
 		'''
-		error = labels - predictions
-		if cost_function == 'mse':
-			cost = (np.square(labels - predictions)).sum() / predictions.size
+		if self.cost_fn == 'mse':
+			error = label - prediction
+			if not derivative:
+				return ( np.square( error ) ).sum() / self.batch_size
+			else:
+				return ( 2 * error ).sum() / self.batch_size
 		
-		return cost	# returns scalar cost value.
-
 
 	class Conv_Layer:
 		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None):
@@ -175,7 +171,6 @@ class CNN():
 			self.prev_layer = None
 
 			self.output = None
-
 
 		def prepare_layer(self):
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
@@ -327,7 +322,6 @@ class CNN():
 
 			self.output = np.zeros(shape=(ishape[0],row_out,col_out))	# Output initiated.
 			print(self.output.shape)
-
 
 		def _forwards(self,_input):
 			self._input = _input
@@ -483,7 +477,7 @@ class CNN():
 			self.weights = self.weights - ( self.model.LEARNING_RATE * dcdw )
 			
 			# calculate cost_gradient wrt previous layer
-			dzda_prev = self.weights	# TODO: CHECK THIS??
+			dzda_prev = self.weights	# TODO: CHECK THIS?? - does this depend on cost function?
 			prev_cost_gradient = dzda_prev * dadz * dcda
 
 			return prev_cost_gradient	# NOTE: Returns a 1D cost gradient array
