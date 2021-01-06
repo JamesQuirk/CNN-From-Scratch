@@ -30,3 +30,7 @@ Below is a quick sketch I made to help illustrate the flow through a CNN. The sk
  - [3Blue1Brown Backpropagation calculus](https://www.youtube.com/watch?v=tIeHLnjs5U8)
 
 - [ML Cheatsheet](https://ml-cheatsheet.readthedocs.io)
+
+- [Medium - Backpropagation for Convolution with Strides [> 1, w.r.t. inputs]](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-8137e4fc2710)
+
+- [Medium - Backpropagation for Convolution with Strides [> 1, w.r.t. filters]](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-fb2f2efc4faa)
