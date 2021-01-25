@@ -12,6 +12,7 @@ import numpy as np
 import math
 import pickle
 from datetime import datetime as dt
+import sys
 
 # CLASS
 class CNN():
@@ -19,18 +20,20 @@ class CNN():
 	This is the top level class. It contains sub-classes for each of the layers that are to be included in the model.
 	"""
 
-	def __init__(self,input_shape: tuple,learning_rate=0.1,cost_fn='mse'):
+	def __init__(self,input_shape: tuple,optimiser_method='adam'):
+		'''
+		- optimiser_method (str): Options: ('sgd','batch','adam',None) Default is 'adam'. Choosing None will result in vanilla gradient descent being performed.	TODO
+		'''
 		assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
+		assert optimiser_method.lower() in CNN.SUPPORTED_OPTIMISERS, f'You must provide an optimiser that is supported. The options are: {CNN.SUPPORTED_OPTIMISERS}'
 
 		self.is_prepared = False
 
 		self.INPUT_SHAPE = input_shape	# tuple to contain input shape
-		self.LEARNING_RATE = learning_rate
-		self.cost_fn = cost_fn
+		self.OPTIMISER_METHOD = optimiser_method.lower()
 
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
-		self.num_layers = {'total':0,'CONV':0,'POOL':0,'FLATTEN':0,'FC':0,'ACTIVATION':0}	# dict for counting number of each layer type
-		self.cost_history = []
+		self.layer_counts = {'total':0,'CONV':0,'POOL':0,'FLATTEN':0,'FC':0,'ACTIVATION':0}	# dict for counting number of each layer type
 
 	def add_layer(self,layer):
 		if layer.LAYER_TYPE == 'ACTIVATION' and self.structure[-1].LAYER_TYPE == 'ACTIVATION':
@@ -47,8 +50,8 @@ class CNN():
 				self.add_layer(CNN.Flatten_Layer())
 
 		self.structure.append(layer)
-		self.num_layers[layer.LAYER_TYPE] += 1
-		self.num_layers['total'] += 1
+		self.layer_counts[layer.LAYER_TYPE] += 1
+		self.layer_counts['total'] += 1
 
 		if layer.LAYER_TYPE == 'FC':
 			# Create the Activation Layer (transparent to user).
@@ -72,8 +75,8 @@ class CNN():
 	def prepare_model(self):
 		""" Called once final layer is added, each layer can now iniate its weights and biases. """
 		print('Preparing model...')
-		if self.num_layers['total'] > 1:
-			for index in range(self.num_layers['total']):
+		if self.layer_counts['total'] > 1:
+			for index in range(self.layer_counts['total']):
 				curr_layer = self.structure[index]
 				if index != len(self.structure) - 1:
 					next_layer = self.structure[index + 1]
@@ -84,12 +87,12 @@ class CNN():
 				if next_layer is not None:
 					next_layer.prev_layer = curr_layer
 
-				curr_layer.model_structure_index = index
+				curr_layer.MODEL_STRUCTURE_INDEX = index
 
-				print(f'Preparing Layer:: Type = {curr_layer.LAYER_TYPE} | Structure index = {curr_layer.model_structure_index}')
+				print(f'Preparing Layer:: Type = {curr_layer.LAYER_TYPE} | Structure index = {curr_layer.MODEL_STRUCTURE_INDEX}')
 				curr_layer.prepare_layer()
 				print('--> Expected output shape:',curr_layer.output.shape)
-		
+
 		self.is_prepared = True
 		print(f'Model Prepared: {self.is_prepared}')
 
@@ -116,7 +119,7 @@ class CNN():
 		
 		return np.eye(num_cats)[array][0]	# Returns in the shape (N,num_cats)
 
-	def train(self,Xs,ys,epochs,batch_size=None,shuffle=False,random_seed=42):
+	def train(self,Xs,ys,epochs,max_batch_size=None,shuffle=False,random_seed=42,learning_rate=0.001,cost_fn='mse',beta1=0.9,beta2=0.999):
 		'''
 		Should take array of inputs and array of labels of the same length.
 
@@ -126,95 +129,163 @@ class CNN():
 		- Xs (np.ndarray or list): (N,ch,rows,cols). Where N is number of examples, ch is number of channels.
 		- ys (np.ndarray or list): (N,num_categories). e.g. ex1 label = [0,0,0,1,0] for 5 categories (one-hot encoded).
 		- epochs (int): Number of iterations over the data set.
-		- batch_size (int): Maximum number of examples in each batch. batch_size=None is equal to batch_size=N.
+		- max_batch_size (int): Maximum number of examples in each batch. max_batch_size=None is equal to max_batch_size=N.
 		- shuffle (bool): Determines whether the data set is shuffled before training.
 		- random_seed (int): The seed provided to numpy before performing the shuffling. random_seed=None will result in no seed being provided meaning numpy will generate it dynamically each time.
+		- beta1 (float): param used for Adam optimisation
+		- beta2 (float): param used for Adam optimisation
 		'''
-		train_start = dt.now()
+		# --------- ASSERTIONS -----------
+		# Check shapes and orientation are as expected
+		assert Xs.shape[0] == ys.shape[0], 'Dimension of input data and labels does not match.'
+		assert ys.shape[-1] == self.structure[-1].output.shape[0], 'Invalid shape for labels. Should be (N,num_categories)'	# NOTE: This assumes last layer in model have output that is a vertical array.
+		assert type(epochs) == int
+		assert int(max_batch_size) == max_batch_size or max_batch_size is None, 'An integer value must be supplied for argument "max_batch_size"'
+		assert cost_fn.lower() in CNN.SUPPORTED_COST_FUNCTIONS, f'Chosen cost function not supported, please choose: {CNN.SUPPORTED_COST_FUNCTIONS}'
+		
+		# --------- ASSIGNMENTS ----------
+		self.N = Xs.shape[0]	# Total number of examples in Xs
+		Xs, ys = np.array(Xs), np.array(ys)	# Convert data to numpy arrays in case not already.
+		self.Xs, self.ys = CNN.shuffle(Xs,ys,random_seed) if shuffle else Xs, ys
+		self.EPOCHS = epochs
+		self.MAX_BATCH_SIZE = self.N if max_batch_size is None else max_batch_size
+		self.BATCH_COUNT = 1 if max_batch_size is None else math.ceil( self.N / self.MAX_BATCH_SIZE )
+		self.COST_FN = cost_fn.lower()
+		self.LEARNING_RATE = learning_rate
+		self.BETA1 = beta1
+		self.BETA2 = beta2
+		self.feed_forwards_cycle_index = -1
+		self.iteration_index = -1	# incremented at start of each backprop so needs to be iniated to -1
+		self.iteration_cost = 0
+		self.iteration_cost_gradient = 0
+
 		if not self.is_prepared:
 			self.prepare_model()
 
-		Xs, ys = np.array(Xs), np.array(ys)	# Convert data to numpy arrays in case not already.
+		if self.OPTIMISER_METHOD in ('batch','adam'):
+			self.TOTAL_ITERATIONS = self.BATCH_COUNT * self.EPOCHS
+		elif self.OPTIMISER_METHOD == 'sgd':
+			self.TOTAL_ITERATIONS = self.N * self.EPOCHS
+		elif self.OPTIMISER_METHOD is None:	# Vanilla GD
+			self.TOTAL_ITERATIONS = self.EPOCHS
 
-		print('Xs shape:', Xs.shape,'ys shape:', ys.shape)
+		self._initiate_tracking_metrics()
 
-		# Check shapes and orientation are as expected
-		assert Xs.shape[0] == ys.shape[0], 'Dimension of input data and labels does not match.'
-		assert ys.shape[-1] == self.structure[-1].NUM_NODES, 'Invalid shape for labels. Should be (N,num_categories)'	# NOTE: This assumes last layer in model is FC_Layer.
+		# ---------- TRAIN -------------
+		train_start = dt.now()
+		for epoch_ind in range(self.EPOCHS):
+			self.epoch_ind = epoch_ind
+			if self.OPTIMISER_METHOD in ('batch','adam'):
+				self._batch_train()
+			elif self.OPTIMISER_METHOD == 'sgd':
+				self._sgd_train()
+			elif self.OPTIMISER_METHOD == 'adam':
+				self._batch_train()
+			elif self.OPTIMISER_METHOD is None:	# Vanilla GD
+				self._gd_train()
 
-		N = Xs.shape[0]	# Total number of examples in Xs
-
-		if batch_size is None:
-			num_batches = 1
-			self.batch_size = N
-		else:
-			assert int(batch_size) == batch_size, 'An integer value must be supplied for argument "batch_size"'
-			self.batch_size = batch_size
-			num_batches = math.ceil( N / batch_size )
-
-		if shuffle:
-			if random_seed is not None:
-				np.random.seed(random_seed)
-			permutation = np.random.permutation( N )
-
-			Xs = Xs[permutation]
-			ys = ys[permutation]
-
-		# Forwards pass...
-		for epoch_ind in range(epochs):
-			print(f'------ EPOCH: {epoch_ind + 1} ------')
-			for batch_ind in range(num_batches):
-				ind_lower = batch_ind * self.batch_size	# Lower bound of index range
-				ind_upper = batch_ind * self.batch_size + self.batch_size	# Upper bound of index range
-				if ind_upper > N - 1 and N > 1:
-					ind_upper = N - 1
-
-				batch_Xs = Xs[ ind_lower : ind_upper ]
-				batch_ys = ys[ ind_lower : ind_upper ]
-
-				cost = 0
-				cost_gradient = 0
-
-				for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
-					print(f'Epoch: {epoch_ind+1} | Batch: {batch_ind+1} of {math.ceil(N/batch_size)} | Example: {ex_ind+1 + batch_ind*batch_size}')
-					for layer in self.structure:
-						# print(f'BEFORE LAYER: {layer.LAYER_TYPE} [{X.shape if isinstance(X, np.ndarray) else None}]') if layer.LAYER_TYPE == 'CONV' else None
-
-						X = layer._forwards(X)
-
-						# print(f'AFTER LAYER: {layer.LAYER_TYPE} [{X.shape if isinstance(X, np.ndarray) else None}]') if layer.LAYER_TYPE == 'CONV' else None
-
-					cost += self.cost(X, batch_ys[ex_ind])
-					cost_gradient += self.cost(X, batch_ys[ex_ind],derivative=True)	# partial diff of cost w.r.t. output of the final layer
-
-				print(f'-- Epoch index: {epoch_ind} | Batch index: {batch_ind} | Cost: {cost}')
-				self.cost_history.append(cost)
-
-				# Backpropagate the cost
-				for layer in self.structure[::-1]:
-					# print(f'BEFORE LAYER: {layer.LAYER_TYPE} [{cost_gradient.shape if isinstance(cost_gradient, np.ndarray) else None}]') if layer.LAYER_TYPE == 'CONV' else None
-					
-					cost_gradient = layer._backwards(cost_gradient)
-
-					# print(f'AFTER LAYER: {layer.LAYER_TYPE} [{cost_gradient.shape if isinstance(cost_gradient, np.ndarray) else None}]') if layer.LAYER_TYPE == 'CONV' else None
 		return dt.now(), dt.now() - train_start	# returns training finish time and duration.
 
-	def cost(self,prediction,label,derivative=False):
-		'''
-		Cost function to provide measure of model 'correctness'. returns scalar cost value.
-		'''
-		label = label.reshape((max(label.shape),1))	# reshape label to vertical array to match network output.
-		error = label - prediction
-		if self.cost_fn == 'mse':
-			if not derivative:
-				return ( np.square( error ) ).sum() / error.size
-			else:
-				return ( 2 * error ).sum() / error.size
+	SUPPORTED_OPTIMISERS = ('sgd','batch','adam',None)
 
-	def evaluate(self,X):
+	def _gd_train(self):
+		for ex_ind in range(self.N):
+			prediction = self.predict(self.Xs[ex_ind],training=True)
+
+			self.iteration_cost += self.cost(prediction, self.ys[ex_ind],batch_size=self.N)
+			self.iteration_cost_gradient += self.cost(prediction, self.ys[ex_ind],batch_size=self.N,derivative=True)
+
+		print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Iteration: {self.iteration_index} | Cost: {self.iteration_cost}')
+
+		self._iterate_backwards(self.iteration_cost_gradient)	# backprop performed only after cycling through all observations.
+
+	def _sgd_train(self):
+		for ex_ind in range(self.N):
+			prediction = self.predict(self.Xs[ex_ind],training=True)
+
+			self.iteration_cost += self.cost(prediction, self.ys[ex_ind],batch_size=1)
+			self.iteration_cost_gradient += self.cost(prediction, self.ys[ex_ind],batch_size=1,derivative=True)
+
+			print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Iteration: {self.iteration_index} | Cost: {self.iteration_cost}')
+
+			self._iterate_backwards(self.iteration_cost_gradient)	# backprop performed after each observation.
+
+	def _batch_train(self):
+		for batch_ind in range(self.BATCH_COUNT):
+			ind_lower = batch_ind * self.MAX_BATCH_SIZE	# Lower bound of index range
+			ind_upper = batch_ind * self.MAX_BATCH_SIZE + self.MAX_BATCH_SIZE	# Upper bound of index range
+			if ind_upper > self.N - 1 and self.N > 1:
+				ind_upper = self.N - 1
+
+			batch_Xs = self.Xs[ ind_lower : ind_upper ]
+			batch_ys = self.ys[ ind_lower : ind_upper ]
+
+			batch_size = len(batch_Xs)
+
+			for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
+				prediction = self.predict(X,training=True)
+
+				self.iteration_cost += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size)
+				self.iteration_cost_gradient += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size,derivative=True)
+
+			print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Batch: {batch_ind+1}/{self.BATCH_COUNT} | Cost: {self.iteration_cost}')
+
+			self._iterate_backwards(self.iteration_cost_gradient)
+
+	def _iterate_backwards(self,cost_gradient):
+		self.iteration_index += 1
+		self.history['cost'][self.iteration_index] = self.iteration_cost
+		# Backpropagate the cost_gradient
+		for layer in self.structure[::-1]:
+			cost_gradient = layer._backwards(cost_gradient)
+
+		self.iteration_cost = 0
+		self.iteration_cost_gradient = 0
+
+	def predict(self,X,training=False):
+		if training: self.feed_forwards_cycle_index += 1
 		for layer in self.structure:
 			X = layer._forwards(X)
 		return X
+
+	@staticmethod
+	def shuffle(X,y,random_seed=None):
+		if random_seed is not None:
+			np.random.seed(random_seed)
+		permutation = np.random.permutation( self.N )
+
+		self.Xs = Xs[permutation]
+		self.ys = ys[permutation]
+
+	def _initiate_tracking_metrics(self):
+		# Initiate model history tracker
+		initial_arr = np.zeros(self.TOTAL_ITERATIONS)
+		initial_arr[:] = np.NaN
+		self.history = {'cost':initial_arr}	# dict object will allow us to store history of various parameters.
+		
+		# Initiate layer history trackers
+		for layer in self.structure:
+			layer._initiate_history()
+
+	SUPPORTED_COST_FUNCTIONS = ('mse','cross_entropy')
+
+	def cost(self,prediction,label,batch_size,derivative=False):
+		'''
+		Cost function to provide measure of model 'correctness'. returns vector cost value.
+		'''
+		label = label.reshape((max(label.shape),1))	# reshape label to vertical array to match network output.
+		error = label - prediction	# Vector
+		if self.COST_FN == 'mse':
+			if not derivative:
+				return np.sum( np.square( error ) ) / (batch_size * prediction.size)	# Vector
+			else:
+				return -( 2 * error ) / batch_size	# Vector
+		elif self.COST_FN == 'cross_entropy':
+			if not derivative:
+				cost = -np.sum(label * np.log(prediction)) / batch_size
+				return cost
+			else:
+				return -(label/prediction) / batch_size
 
 	def save_model(self,name: str):
 		assert name.split('.')[-1] == 'pkl'
@@ -227,10 +298,155 @@ class CNN():
 		with open(name, 'rb') as file:  
 			model = pickle.load(file)
 		return model
-		
 
-	class Conv_Layer:
-		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42):
+	@staticmethod
+	def array_init(shape,method=None):
+		''' Random initialisation of weights array.
+		Xavier or Kaiming: (https://towardsdatascience.com/weight-initialization-in-neural-networks-a-journey-from-the-basics-to-kaiming-954fb9b47c79) '''
+		assert len(shape) >= 2
+		fan_in = shape[-1]
+		fan_out = shape[-2]
+		if method is None:
+			return np.random.normal(size=shape)
+		elif method == 'kaiming_normal':
+			# AKA "he_normal" after Kaiming He.
+			return np.random.normal(size=shape) * np.sqrt(2./shape[-1])
+		elif method == 'kaiming_uniform':
+			return np.random.uniform(size=shape) * np.sqrt(6./fan_in)
+		elif method == 'xavier_uniform':
+			return np.random.uniform(size=shape) * np.sqrt(6./(fan_in+fan_out))
+		elif method == 'xavier_normal':
+			# https://arxiv.org/pdf/2004.09506.pdf
+			target_std = np.sqrt(2./np.sum(shape))
+			return np.random.normal(size=shape,scale=target_std)
+		elif method == 'abs_norm':
+			# Custom alternative
+			arr = np.random.normal(size=shape)
+			return arr / np.abs(arr).max()
+		elif method == 'uniform':
+			return np.random.uniform(size=shape) * (1./np.sqrt(fan_in))
+
+
+	class CNN_Layer:
+		'''
+		PARENT LAYER CLASS FOR ALL LAYER TYPES
+		'''
+		def __init__(self):
+			self.model = None
+
+			self.next_layer = None
+			self.prev_layer = None
+
+			self.output = None
+
+		def _initiate_history(self):
+			out_init_arr = np.zeros(self.model.EPOCHS * self.model.N)
+			out_init_arr[:] = np.NaN
+			cg_init_arr = np.zeros(self.model.TOTAL_ITERATIONS)
+			cg_init_arr[:] = np.NaN
+			self.history = {
+				'output':
+					{'mean':out_init_arr,'std':out_init_arr,'max':out_init_arr,'min':out_init_arr,'sum':out_init_arr,'median':out_init_arr},
+				'cost_gradient':
+					{'mean':cg_init_arr,'std':cg_init_arr,'max':cg_init_arr,'min':cg_init_arr,'sum':cg_init_arr,'median':cg_init_arr}
+			}
+
+		def _track_metrics(self,output=None,cost_gradient=None):
+			if output is not None:
+				self.history['output']['mean'][self.model.feed_forwards_cycle_index] = np.mean(output)
+				self.history['output']['std'][self.model.feed_forwards_cycle_index] = np.std(output)
+				self.history['output']['max'][self.model.feed_forwards_cycle_index] = np.max(output)
+				self.history['output']['min'][self.model.feed_forwards_cycle_index] = np.min(output)
+				self.history['output']['sum'][self.model.feed_forwards_cycle_index] = np.sum(output)
+				self.history['output']['median'][self.model.feed_forwards_cycle_index] = np.median(output)
+			if cost_gradient is not None:
+				if not np.isnan(self.history['cost_gradient']['mean'][self.model.iteration_index]):
+					print(f"Warning: value already set. Overwriting {self.history['cost_gradient']['mean'][self.model.iteration_index]} with {np.mean(cost_gradient)}")
+					sys.exit()
+				self.history['cost_gradient']['mean'][self.model.iteration_index] = np.mean(cost_gradient)
+				self.history['cost_gradient']['std'][self.model.iteration_index] = np.std(cost_gradient)
+				self.history['cost_gradient']['max'][self.model.iteration_index] = np.max(cost_gradient)
+				self.history['cost_gradient']['min'][self.model.iteration_index] = np.min(cost_gradient)
+				self.history['cost_gradient']['sum'][self.model.iteration_index] = np.sum(cost_gradient)
+				self.history['cost_gradient']['median'][self.model.iteration_index] = np.median(cost_gradient)
+
+		def define_details(self):
+			details = {
+				'LAYER_INDEX':self.MODEL_LAYER_INDEX,
+				'LAYER_TYPE':self.LAYER_TYPE
+			}
+			if self.LAYER_TYPE is 'CONV':
+				details.update({
+					'NUM_FILTERS':self.NUM_FILTERS,
+					'STRIDE':self.STRIDE
+				})
+			elif self.LAYER_TYPE is 'POOL':
+				details.update({
+					'STRIDE':self.STRIDE,
+					'POOL_TYPE':self.POOL_TYPE
+				})
+			elif self.LAYER_TYPE is 'FLATTEN':
+				details.update({
+				})
+			elif self.LAYER_TYPE is 'FC':
+				details.update({
+					'NUM_NODES':self.NUM_NODES,
+					'ACTIVATION':self.ACTIVATION
+				})
+			elif self.LAYER_TYPE is 'ACTIVATION':
+				details.update({
+					'FUNCTION':self.FUNCTION
+				})
+			
+			return details
+
+		def _initiate_adam_params(self):
+			if self.LAYER_TYPE == 'FC':
+				self.adam_params = {
+					'weight':{
+						'moment1':np.zeros(shape=self.weights.shape),
+						'moment2':np.zeros(shape=self.weights.shape)
+					},
+					'bias':{
+						'moment1':np.zeros(shape=self.bias.shape),
+						'moment2':np.zeros(shape=self.bias.shape)
+					},
+					'epsilon':1e-8
+				}
+			else:
+				self.adam_params = {
+					'filter':{
+						'moment1':np.zeros(shape=self.filters.shape),
+						'moment2':np.zeros(shape=self.filters.shape)
+					},
+					'bias':{
+						'moment1':np.zeros(shape=self.bias.shape),
+						'moment2':np.zeros(shape=self.bias.shape)
+					},
+					'epsilon':1e-8
+				}
+
+		def _update_factor(self,cost_gradient,param_type=None):
+			if self.model.OPTIMISER_METHOD == 'adam':
+				assert param_type in ('weight','filter','bias')
+				moment1 = self.adam_params[param_type]['moment1']
+				moment2 = self.adam_params[param_type]['moment2']
+				eps = self.adam_params['epsilon']
+
+				moment1 = self.model.BETA1 * moment1 + (1-self.model.BETA1) * cost_gradient
+				moment2 = self.model.BETA2 * moment2 + (1-self.model.BETA2) * np.square(cost_gradient)
+				moment1_hat = moment1 / (1-np.power(self.model.BETA1,self.model.iteration_index))
+				moment2_hat = moment2 / (1-np.power(self.model.BETA2,self.model.iteration_index))
+
+				self.adam_params[param_type]['moment1'] = moment1
+				self.adam_params[param_type]['moment2'] = moment2
+				return self.model.LEARNING_RATE * ( moment1_hat / np.sqrt( moment2_hat + eps ) )
+			else:
+				return self.model.LEARNING_RATE * cost_gradient
+
+
+	class Conv_Layer(CNN_Layer):
+		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None):
 			""" 
 			- filt_shape (tuple): A tuple object describing the 2D shape of the filter to be convolved over the input.
 			- num_filters (int): Number of filters to be used.
@@ -238,24 +454,19 @@ class CNN():
 			- padding (int): Width of zero-padding to apply on each side of the array. Only applied if pad_type is None.
 			- pad_type (str): Options: same (output shape is same as input shape), valid (equal to padding=0), include (padding added evenly on all sides of the array to allow the filter to shift over the input an integer number of times - avoid excluding input data).
 			- random_seed (int): The seed provided to numpy before initiating the filters and biases. random_seed=None will result in no seed being provided meaning numpy will generate it dynamically each time.
+			- initiation_method (str): This is the method used to initiate the weights and biases. Options: "kaiming", "xavier" or None. Default is none - this simply takes random numbers from standard normal distribution with no scaling.
 			"""
-			self.model = None
+			super().__init__()
 
 			self.LAYER_TYPE = 'CONV'
+			self.IS_TRAINABLE = True
 			self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
 			self.NUM_FILTERS = num_filters
 			self.STRIDE = stride
 			self.PADDING = padding
-			if pad_type:
-				self.PAD_TYPE = pad_type.lower()
-			else:
-				self.PAD_TYPE = None
+			self.PAD_TYPE = None if pad_type is None else pad_type.lower()
 			self.RANDOM_SEED = random_seed
-
-			self.next_layer = None
-			self.prev_layer = None
-
-			self.output = None
+			self.INITIATION_METHOD = None if initiation_method is None else initiation_method.lower()
 
 		def prepare_layer(self):
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
@@ -273,13 +484,9 @@ class CNN():
 			NUM_INPUT_COLS = INPUT_SHAPE[-1]
 
 			# Initiate filters
-			filts = []
-			for _ in range(self.NUM_FILTERS):
-				np.random.seed(self.RANDOM_SEED)
-				filts.append( np.random.normal(size=(INPUT_SHAPE[0],self.FILT_SHAPE[0], self.FILT_SHAPE[1]) ) )
-			self.filters = np.array(filts)
+			self.filters = CNN.array_init(shape=(self.NUM_FILTERS,INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD)
 			np.random.seed(self.RANDOM_SEED)
-			self.bias = np.random.normal(size=(self.NUM_FILTERS,1))
+			self.bias = np.zeros(shape=(self.NUM_FILTERS,1))
 
 			# Need to account for padding.
 			if self.PAD_TYPE != None:
@@ -294,12 +501,12 @@ class CNN():
 				elif self.PAD_TYPE == 'include':
 					# Here we will implement the padding method to avoid input data being excluded/ missed by the convolution.
 					# - This happens when, (I_dim - F_dim) % stride != 0
-					if (self.NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE != 0:
-						pad_rows_needed = self.FILT_SHAPE[0] - ((self.NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
+					if (NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE != 0:
+						pad_rows_needed = self.FILT_SHAPE[0] - ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
 					else:
 						pad_rows_needed = 0
-					if (self.NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE != 0:
-						pad_cols_needed = self.FILT_SHAPE[1] - ((self.NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
+					if (NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE != 0:
+						pad_cols_needed = self.FILT_SHAPE[1] - ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
 					else:
 						pad_cols_needed = 0
 
@@ -317,14 +524,11 @@ class CNN():
 			if self.PAD_TYPE == 'same':
 				assert self.output.shape[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
 
-		def define_details(self):
-			return {
-				'LAYER_TYPE':self.LAYER_TYPE,
-				'NUM_FILTERS':self.NUM_FILTERS,
-				'STRIDE':self.STRIDE
-			}
+			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
+			self.output[:] = 0 # Output must be re-initiated before each run
+
 			if _input.ndim == 3:
 				self.input = _input
 			elif _input.ndim == 2:
@@ -345,10 +549,12 @@ class CNN():
 				
 				self.output[filt_index] += self.bias[filt_index]
 
+			self._track_metrics(output=self.output)
 			return self.output	# NOTE: Output is 3D array of shape: ( NUM_FILTS, NUM_ROWS, NUM_COLS )
 
 		def _backwards(self,cost_gradient):	
 			assert cost_gradient.shape == self.output.shape, f'cost_gradient shape [{cost_gradient.shape}] does not match layer output shape [{self.output.shape}].'
+			self._track_metrics(cost_gradient=cost_gradient)
 
 			_, c_rows, c_cols = cost_gradient.shape
 			dilation_idx_row = np.arange(c_rows-1) + 1	# Intiatial indices for insertion of zeros
@@ -358,7 +564,7 @@ class CNN():
 				cost_gradient_dilated = np.insert(
 					np.insert( cost_gradient_dilated, dilation_idx_row * n, 0, axis=1 ),
 					dilation_idx_col * n, 0, axis=2)	# the n multiplier is to increment the indices in the non-uniform manner required.
-			print(f'cost_gradient shape: {cost_gradient.shape} | cost_gradient_dilated shape: {cost_gradient_dilated.shape}')
+			# print(f'cost_gradient shape: {cost_gradient.shape} | cost_gradient_dilated shape: {cost_gradient_dilated.shape}')
 
 			dCdF = []	# initiate as list then convert to np.array
 			dCdX_pad_excl = []
@@ -381,15 +587,25 @@ class CNN():
 			pxls_excl_x = (self.padded_input.shape[2] - self.FILT_SHAPE[1]) % self.STRIDE	# pixels excluded in x direction (cols)
 			pxls_excl_y = (self.padded_input.shape[1] - self.FILT_SHAPE[0]) % self.STRIDE	# pixels excluded in y direction (rows)
 			dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
+			assert dCdF.shape == self.filters.shape, f'dCdF shape [{dCdF.shape}] does not match filters shape [{self.filters.shape}].'
+			
 			dCdX_pad = np.zeros(shape=self.padded_input.shape)
 			dCdX_pad[:,: dCdX_pad.shape[1] - pxls_excl_y, : dCdX_pad.shape[2] - pxls_excl_x] = dCdX_pad_excl	# pixels excluded in forwards pass will now appear with cost_gradient = 0.
-			assert dCdF.shape == self.filters.shape, f'dCdF shape [{dCdF.shape}] does not match filters shape [{self.filters.shape}].'
 
 			# Remove padding that was added to the input array.
 			dCdX = dCdX_pad[ : , self.ROW_UP_PAD : dCdX_pad.shape[1] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dCdX_pad.shape[2] - self.COL_RIGHT_PAD ]
 			assert dCdX.shape == self.input.shape, f'dCdX shape [{dCdX.shape}] does not match layer input shape [{self.input.shape}].'
 
-			self.filters = self.filters + ( self.model.LEARNING_RATE * dCdF	) # ADJUST THE FILTERS
+			# ADJUST THE FILTERS
+			# self.filters = self.filters - ( self.model.LEARNING_RATE * dCdF	)
+			self.filters = self.filters - self._update_factor(dCdF,'filter')
+
+			# ADJUST THE BIAS
+			dCdB = 1 * cost_gradient.sum(axis=(1,2)).reshape(self.bias.shape)
+			assert dCdB.shape == self.bias.shape, f'dCdB shape [{dCdB.shape}] does not match bias shape [{self.bias.shape}].'
+			# self.bias = self.bias - ( self.model.LEARNING_RATE * dCdB )	# NOTE: Adjustments done in opposite direction to cost_gradient
+			self.bias = self.bias - self._update_factor(dCdB,'bias')	# NOTE: Adjustments done in opposite direction to cost_gradient
+
 			return dCdX
 
 		@staticmethod
@@ -426,7 +642,7 @@ class CNN():
 			return output
 
 	
-	class Pool_Layer:
+	class Pool_Layer(CNN_Layer):
 		def __init__(self,filt_shape: tuple,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None):
 			'''
 			- filt_shape (tuple): A tuple object describing the 2D shape of the filter to use for pooling.
@@ -435,18 +651,16 @@ class CNN():
 			- padding (int): Width of zero-padding to apply on each side of the array. Only applied if pad_type is None.
 			- pad_type (str): Options: same (output shape is same as input shape), valid (equal to padding=0), include (padding added evenly on all sides of the array to allow the filter to shift over the input an integer number of times - avoid excluding input data).
 			'''
-			self.model = None
+			super().__init__()
 
 			self.LAYER_TYPE = 'POOL'
+			self.IS_TRAINABLE = False
 			self.FILT_SHAPE = filt_shape	# 2D array (rows,cols)
 			self.STRIDE = stride
 			self.POOL_TYPE = pool_type.lower()
 			assert self.POOL_TYPE in ('max','mean','min')
 			self.PADDING = padding
 			self.PAD_TYPE = None if pad_type is None else pad_type.lower()
-
-			self.next_layer = None
-			self.prev_layer = None
 
 		def prepare_layer(self):
 			""" This needs to be done after the input has been identified - currently happens when train() is called. """
@@ -477,12 +691,12 @@ class CNN():
 				elif self.PAD_TYPE == 'include':
 					# Here we will implement the padding method to avoid input data being excluded/ missed by the convolution.
 					# - This happens when, (I_dim - F_dim) % stride != 0
-					if (self.NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE != 0:
-						pad_rows_needed = self.FILT_SHAPE[0] - ((self.NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
+					if (NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE != 0:
+						pad_rows_needed = self.FILT_SHAPE[0] - ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
 					else:
 						pad_rows_needed = 0
-					if (self.NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE != 0:
-						pad_cols_needed = self.FILT_SHAPE[1] - ((self.NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
+					if (NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE != 0:
+						pad_cols_needed = self.FILT_SHAPE[1] - ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
 					else:
 						pad_cols_needed = 0
 
@@ -499,13 +713,6 @@ class CNN():
 			self.output = np.zeros(shape=(INPUT_SHAPE[0],row_out,col_out))	# Output initiated.
 			if self.PAD_TYPE == 'same':
 				assert self.output.shape[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
-
-		def define_details(self):
-			return {
-				'LAYER_TYPE':self.LAYER_TYPE,
-				'STRIDE':self.STRIDE,
-				'POOL_TYPE':self.POOL_TYPE
-			}
 
 		def _forwards(self,_input):
 			if _input.ndim == 3:
@@ -541,6 +748,7 @@ class CNN():
 				curr_y += self.STRIDE
 				out_y += 1
 
+			self._track_metrics(output=self.output)
 			return self.output
 
 		def _backwards(self,cost_gradient):
@@ -559,6 +767,7 @@ class CNN():
 			- The responsibility will be split between the nodes; weighted by the proportion of each value to the total for the region.
 			'''
 			assert cost_gradient.shape == self.output.shape
+			self._track_metrics(cost_gradient=cost_gradient)
 			# Initiate to input shape.
 			prev_cost_gradient = np.zeros_like(self.padded_input)
 
@@ -605,73 +814,75 @@ class CNN():
 			return prev_cost_gradient
 
 
-	class Flatten_Layer:
+	class Flatten_Layer(CNN_Layer):
 		""" A psuedo layer that simply adjusts the data dimension as it passes between 2D/3D Conv or Pool layers to the 1D FC layers. """
 
 		def __init__(self):
-			self.LAYER_TYPE = 'FLATTEN'
+			super().__init__()
 
-			self.next_layer = None
-			self.prev_layer = None
+			self.LAYER_TYPE = 'FLATTEN'
+			self.IS_TRAINABLE = False
 
 		def prepare_layer(self):
-			self.output = np.zeros(shape=(self.prev_layer.output.size,1))
-
-		def define_details(self):
-			return {
-				'LAYER_TYPE':self.LAYER_TYPE
-			}
+			if self.prev_layer is None:
+				self.output = np.zeros(shape=(np.prod(self.model.INPUT_SHAPE),1))
+			else:
+				self.output = np.zeros(shape=(self.prev_layer.output.size,1))
 
 		def _forwards(self,_input):
-			return _input.reshape((_input.size,1))	# NOTE: Vertical array
+			self.output = _input.reshape((_input.size,1))
+
+			self._track_metrics(output=self.output)
+			return self.output	# NOTE: Vertical array
 
 		def _backwards(self,cost_gradient):
-			return cost_gradient.reshape(self.prev_layer.output.shape)
+			self._track_metrics(cost_gradient=cost_gradient)
+			if self.prev_layer is not None:
+				return cost_gradient.reshape(self.prev_layer.output.shape)
 
 
-	class FC_Layer:
+	class FC_Layer(CNN_Layer):
 		"""
 		The Fully Connected Layer is defined as being the layer of nodes and the weights of the connections that link those nodes to the previous layer.
 		"""
-		def __init__(self, num_nodes, activation: str=None,random_seed=42):
+		def __init__(self, num_nodes, activation: str=None,random_seed=42,initiation_method=None):
 			"""
 			- n: Number of nodes in layer.
 			- activation: The name of the activation function to be used. The activation is handled by a CNN.Activation_Layer object that is transparent to the user here. Defaults to None - a transparent Activation layer will still be added however, the data passing through will be untouched.
+			- initiation_method (str): This is the method used to initiate the weights and biases. Options: "kaiming", "xavier" or None. Default is none - this simply takes random numbers from standard normal distribution with no scaling.
 			"""
-			self.model = None
+			super().__init__()
 
 			self.LAYER_TYPE = 'FC'
+			self.IS_TRAINABLE = True
 			self.NUM_NODES = num_nodes
 			self.ACTIVATION = None if activation is None else activation.lower()
 			self.RANDOM_SEED = random_seed
-
-			self.next_layer = None
-			self.prev_layer = None
-
-			self.output = np.zeros(shape=(num_nodes,1))	# NOTE: This is a vertical array.
+			self.INITIATION_METHOD = None if initiation_method is None else initiation_method.lower()
 
 		def prepare_layer(self):
-			""" Initiate weights and biases randomly"""
-			w_cols = self.prev_layer.output.size
+			if self.prev_layer is None:
+				w_cols = np.prod(self.model.INPUT_SHAPE)
+			else:
+				w_cols = self.prev_layer.output.size
+			
 			w_rows = self.NUM_NODES	# NOTE: "Each row corresponds to all connections of previous layer to a single node in current layer." - based on vertical node array.
 			np.random.seed(self.RANDOM_SEED)
-			self.weights = np.random.normal(size=(w_rows,w_cols))	# NOTE: this is the correct orientation for vertical node array.
-			
-			np.random.seed(self.RANDOM_SEED)
-			self.bias = np.random.normal(size=(self.NUM_NODES,1))	# NOTE: MUST be same shape as output array.
+			# self.weights = np.random.normal(size=(w_rows,w_cols))	# NOTE: this is the correct orientation for vertical node array.
+			self.weights = CNN.array_init(shape=(w_rows,w_cols),method=self.INITIATION_METHOD)	# NOTE: this is the correct orientation for vertical node array.
 
-		def define_details(self):
-			return {
-				'LAYER_TYPE':self.LAYER_TYPE,
-				'NUM_NODES':self.NUM_NODES,
-				'ACTIVATION':self.ACTIVATION
-			}
+			self.bias = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: Recommended to initaite biases to zero.
+			
+			self.output = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: This is a vertical array.
+
+			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
 			self.input = _input
 
 			self.output = np.dot( self.weights, self.input ) + self.bias
 
+			self._track_metrics(output=self.output)
 			return self.output
 
 		def _backwards(self, cost_gradient):
@@ -680,45 +891,40 @@ class CNN():
 
 			Z = W . I + B
 
-			cost gradient shape === Z shape
 			"""
 			assert cost_gradient.shape == self.output.shape
+			self._track_metrics(cost_gradient=cost_gradient)
 
-			Z = self.output	# Weighted sum is calculated on forwards pass.
-			dZ_dW = self.input	# Partial diff of weighted sum (Z) w.r.t. weights
+			dZ_dW = np.transpose( self.input )	# Partial diff of weighted sum (Z) w.r.t. weights
 			dZ_dB = 1
 			dZ_dI = np.transpose( self.weights )	# Partial diff of weighted sum w.r.t. input to layer.
 			
-			dC_dW = np.multiply( cost_gradient , np.transpose( dZ_dW ) )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
-
-			self.weights = self.weights + ( self.model.LEARNING_RATE * dC_dW )
+			dC_dW = np.multiply( cost_gradient , dZ_dW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
+			assert dC_dW.shape == self.weights.shape, f'dC_dW shape {dC_dW.shape} does not match {self.weights.shape}'
+			self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to cost_gradient
+			self.weights = self.weights - self._update_factor(dC_dW,'weight')
 
 			dC_dB = np.multiply( cost_gradient, dZ_dB )	# Element-wise multiplication
 
-			self.bias = self.bias + ( self.model.LEARNING_RATE * dC_dB )
+			assert dC_dB.shape == self.bias.shape, f'dC_dW shape {dC_dB.shape} does not match {self.bias.shape}'
+			# self.bias = self.bias - ( self.model.LEARNING_RATE * dC_dB )	# NOTE: Adjustments done in opposite direction to cost_gradient
+			self.bias = self.bias - self._update_factor(dC_dB,'bias')	# NOTE: Adjustments done in opposite direction to cost_gradient
 
 			return np.matmul( dZ_dI , cost_gradient )	# Matrix multiplication
 
 
-	class Activation:
-		def __init__(self,function: str=None):
-			self.model = None
+	class Activation(CNN_Layer):
+		def __init__(self,function: str=None,alpha=0.01):
+			super().__init__()
 
 			self.LAYER_TYPE = 'ACTIVATION'
-
-			self.next_layer = None
-			self.prev_layer = None
+			self.IS_TRAINABLE = False
+			self.alpha = alpha
 
 			self.FUNCTION = None if function is None else function.lower()
 
 		def prepare_layer(self):
 			self.output = np.zeros(shape=self.prev_layer.output.shape )
-
-		def define_details(self):
-			return {
-				'LAYER_TYPE':self.LAYER_TYPE,
-				'FUNCTION':self.FUNCTION
-			}
 
 		def _forwards(self,_input):
 			self.input = _input
@@ -730,9 +936,10 @@ class CNN():
 				_input[_input<0] = 0
 				self.output = _input
 			elif self.FUNCTION == 'softmax':
-				# Softmax is a special activation function use for output neurons. It normalizes outputs for each class between 0 and 1, and returns the probability that the input belongs to a specific class.
-				exp = np.exp(_input)
+				# Softmax is a special activation function used for output neurons. It normalizes outputs for each class between 0 and 1, and returns the probability that the input belongs to a specific class.
+				exp = np.exp(_input - np.max(_input))	# Normalises by max value - provides "numerical stability"
 				self.output = exp / np.sum(exp)
+				assert round(self.output.sum()) == 1, f'Output array sum {self.output.sum()} is not equal to 1. Array: {self.output.reshape((1,-1))}'
 			elif self.FUNCTION == 'sigmoid':
 				# The sigmoid function has a smooth gradient and outputs values between zero and one. For very high or low values of the input parameters, the network can be very slow to reach a prediction, called the vanishing gradient problem.
 				self.output = 1 / (1 + np.exp(-_input))
@@ -746,25 +953,34 @@ class CNN():
 				pass
 			elif self.FUNCTION == 'leaky relu':
 				# The Leaky ReLu function has a small positive slope in its negative area, enabling it to process zero or negative values.
-				self.alpha = 0.01
 				_input[_input <= 0] = self.alpha * _input[_input <= 0]
 				self.output = _input
 			elif self.FUNCTION == 'parametric relu': # TODO: Define "Parametric ReLu"
 				#  The Parametric ReLu function allows the negative slope to be learned, performing backpropagation to learn the most effective slope for zero and negative input values.
 				pass
+
+			self._track_metrics(output=self.output)
 			return self.output
 
 		def _backwards(self,cost_gradient):
-			# NOTE: Differation of Activation w.r.t. z
+			# NOTE: Derivative of Activation w.r.t. z
+			self._track_metrics(cost_gradient=cost_gradient)
+
 			dA_dZ = None
 			if self.FUNCTION is None: # a = z
 				dA_dZ = np.ones( self.input.shape )
 			elif self.FUNCTION == 'relu':
 				dA_dZ = self.input
 				dA_dZ[dA_dZ <= 0] = 0
-				dA_dZ[dA_dZ> 0] = 1
-			elif self.FUNCTION == 'softmax': # TODO
-				pass
+				dA_dZ[dA_dZ > 0] = 1
+			elif self.FUNCTION == 'softmax':
+				# Generalised function is: del_sig(zi) / del_zj = sig(z_j)(d_kron - sig(z_i)). Where d_kron is Kronecker delta: 1 if i=j and 0 otherwise.
+				sig_square = np.broadcast_to( self.output ,(self.output.shape[-2],self.output.shape[-2]))	# Broadcasting output array to a square
+				identity = np.identity(self.output.shape[-2])	# Square identity array
+				sig_t_square = np.transpose(sig_square)
+				dA_dZ = sig_square * (identity - sig_t_square)	# Sum along rows -> result in vertical array
+
+				cost_gradient = np.broadcast_to( np.transpose(cost_gradient) , (cost_gradient.shape[-2],cost_gradient.shape[-2]))
 			elif self.FUNCTION == 'sigmoid':
 				dA_dZ =  self.output * (1 - self.output)	# Element-wise multiplication.
 			elif self.FUNCTION == 'step': # TODO: Define "step function" derivative
@@ -782,5 +998,7 @@ class CNN():
 			
 			assert dA_dZ is not None, f'WARNING:: No derivative defined for chosen activation function "{self.FUNCTION}"'
 			
-			return np.multiply( dA_dZ , cost_gradient )	# Element-wise multiplication.
+			cost_gradient = np.sum( np.multiply( dA_dZ , cost_gradient ), axis=1, keepdims=True)	# Element-wise multiplication. Sum in case square matrix.
+			assert cost_gradient.shape == self.input.shape
+			return cost_gradient
 
