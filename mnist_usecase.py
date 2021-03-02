@@ -1,11 +1,11 @@
 from src.cnn import CNN
 import mnist_dataloader
-np.set_printoptions(linewidth=200)
+# np.set_printoptions(linewidth=200)
 
 
 train_images, train_labels, test_images, test_labels = mnist_dataloader.get_data()
 
-model = CNN((1,28,28),optimiser_method='adam')
+model = CNN((1,28,28),optimiser_method='sgd')
 
 # model.add_layer(
 # 	CNN.Conv_Layer(filt_shape=(5,5),num_filters=5,stride=2,pad_type='include')
@@ -39,6 +39,6 @@ train_finish, training_duration = model.train(
 	learning_rate=0.001
 )
 print(f'Training duration: {training_duration}')
-save_name = f'nn_model_{train_finish.strftime("%H-%M-%S")}.pkl'
+save_name = f'nn_model_sgd_{train_finish.strftime("%H-%M-%S")}.pkl'
 print(f'Model saved to: {save_name}')
 model.save_model(save_name)

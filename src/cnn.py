@@ -22,7 +22,7 @@ class CNN():
 
 	def __init__(self,input_shape: tuple,optimiser_method='adam'):
 		'''
-		- optimiser_method (str): Options: ('sgd','batch','adam',None) Default is 'adam'. Choosing None will result in vanilla gradient descent being performed.	TODO
+		- optimiser_method (str): Options: ('sgd','adam') Default is 'adam'.
 		'''
 		assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
 		assert optimiser_method.lower() in CNN.SUPPORTED_OPTIMISERS, f'You must provide an optimiser that is supported. The options are: {CNN.SUPPORTED_OPTIMISERS}'
@@ -62,7 +62,7 @@ class CNN():
 	def remove_layer(self,index):
 		self.structure.pop(index)
 		if self.is_prepared:
-			print('-- INFO:: Model preparation will now need to be re-done.')
+			print('-- INFO:: Re-compiling model...')
 			self.prepare_model()
 			
 	def get_model_details(self):
@@ -119,7 +119,7 @@ class CNN():
 		
 		return np.eye(num_cats)[array][0]	# Returns in the shape (N,num_cats)
 
-	def train(self,Xs,ys,epochs,max_batch_size=None,shuffle=False,random_seed=42,learning_rate=0.001,cost_fn='mse',beta1=0.9,beta2=0.999):
+	def train(self,Xs,ys,epochs,max_batch_size=32,shuffle=False,random_seed=42,learning_rate=0.001,cost_fn='mse',beta1=0.9,beta2=0.999):
 		'''
 		Should take array of inputs and array of labels of the same length.
 
@@ -129,7 +129,7 @@ class CNN():
 		- Xs (np.ndarray or list): (N,ch,rows,cols). Where N is number of examples, ch is number of channels.
 		- ys (np.ndarray or list): (N,num_categories). e.g. ex1 label = [0,0,0,1,0] for 5 categories (one-hot encoded).
 		- epochs (int): Number of iterations over the data set.
-		- max_batch_size (int): Maximum number of examples in each batch. max_batch_size=None is equal to max_batch_size=N.
+		- max_batch_size (int): Maximum number of examples in each batch. (Tensorflow defaults to 32. Also, batch_size > N will be truncated.)
 		- shuffle (bool): Determines whether the data set is shuffled before training.
 		- random_seed (int): The seed provided to numpy before performing the shuffling. random_seed=None will result in no seed being provided meaning numpy will generate it dynamically each time.
 		- beta1 (float): param used for Adam optimisation
@@ -140,7 +140,7 @@ class CNN():
 		assert Xs.shape[0] == ys.shape[0], 'Dimension of input data and labels does not match.'
 		assert ys.shape[-1] == self.structure[-1].output.shape[0], 'Invalid shape for labels. Should be (N,num_categories)'	# NOTE: This assumes last layer in model have output that is a vertical array.
 		assert type(epochs) == int
-		assert int(max_batch_size) == max_batch_size or max_batch_size is None, 'An integer value must be supplied for argument "max_batch_size"'
+		assert int(max_batch_size) == max_batch_size and max_batch_size is not None, 'An integer value must be supplied for argument "max_batch_size"'
 		assert cost_fn.lower() in CNN.SUPPORTED_COST_FUNCTIONS, f'Chosen cost function not supported, please choose: {CNN.SUPPORTED_COST_FUNCTIONS}'
 		
 		# --------- ASSIGNMENTS ----------
@@ -148,8 +148,11 @@ class CNN():
 		Xs, ys = np.array(Xs), np.array(ys)	# Convert data to numpy arrays in case not already.
 		self.Xs, self.ys = CNN.shuffle(Xs,ys,random_seed) if shuffle else Xs, ys
 		self.EPOCHS = epochs
-		self.MAX_BATCH_SIZE = self.N if max_batch_size is None else max_batch_size
-		self.BATCH_COUNT = 1 if max_batch_size is None else math.ceil( self.N / self.MAX_BATCH_SIZE )
+		if self.OPTIMISER_METHOD == 'sgd':
+			self.MAX_BATCH_SIZE = 1
+		else:
+			self.MAX_BATCH_SIZE = self.N if max_batch_size > self.N else max_batch_size
+		self.BATCH_COUNT = math.ceil( self.N / self.MAX_BATCH_SIZE )
 		self.COST_FN = cost_fn.lower()
 		self.LEARNING_RATE = learning_rate
 		self.BETA1 = beta1
@@ -162,12 +165,7 @@ class CNN():
 		if not self.is_prepared:
 			self.prepare_model()
 
-		if self.OPTIMISER_METHOD in ('batch','adam'):
-			self.TOTAL_ITERATIONS = self.BATCH_COUNT * self.EPOCHS
-		elif self.OPTIMISER_METHOD == 'sgd':
-			self.TOTAL_ITERATIONS = self.N * self.EPOCHS
-		elif self.OPTIMISER_METHOD is None:	# Vanilla GD
-			self.TOTAL_ITERATIONS = self.EPOCHS
+		self.TOTAL_ITERATIONS = self.BATCH_COUNT * self.EPOCHS
 
 		self._initiate_tracking_metrics()
 
@@ -175,47 +173,21 @@ class CNN():
 		train_start = dt.now()
 		for epoch_ind in range(self.EPOCHS):
 			self.epoch_ind = epoch_ind
-			if self.OPTIMISER_METHOD in ('batch','adam'):
-				self._batch_train()
-			elif self.OPTIMISER_METHOD == 'sgd':
-				self._sgd_train()
-			elif self.OPTIMISER_METHOD == 'adam':
-				self._batch_train()
-			elif self.OPTIMISER_METHOD is None:	# Vanilla GD
-				self._gd_train()
+			
+			self._iterate_forwards()
 
 		return dt.now(), dt.now() - train_start	# returns training finish time and duration.
 
-	SUPPORTED_OPTIMISERS = ('sgd','batch','adam',None)
+	SUPPORTED_OPTIMISERS = ('sgd','adam')
 
-	def _gd_train(self):
-		for ex_ind in range(self.N):
-			prediction = self.predict(self.Xs[ex_ind],training=True)
-
-			self.iteration_cost += self.cost(prediction, self.ys[ex_ind],batch_size=self.N)
-			self.iteration_cost_gradient += self.cost(prediction, self.ys[ex_ind],batch_size=self.N,derivative=True)
-
-		print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Iteration: {self.iteration_index} | Cost: {self.iteration_cost}')
-
-		self._iterate_backwards(self.iteration_cost_gradient)	# backprop performed only after cycling through all observations.
-
-	def _sgd_train(self):
-		for ex_ind in range(self.N):
-			prediction = self.predict(self.Xs[ex_ind],training=True)
-
-			self.iteration_cost += self.cost(prediction, self.ys[ex_ind],batch_size=1)
-			self.iteration_cost_gradient += self.cost(prediction, self.ys[ex_ind],batch_size=1,derivative=True)
-
-			print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Iteration: {self.iteration_index} | Cost: {self.iteration_cost}')
-
-			self._iterate_backwards(self.iteration_cost_gradient)	# backprop performed after each observation.
-
-	def _batch_train(self):
+	def _iterate_forwards(self):
 		for batch_ind in range(self.BATCH_COUNT):
 			ind_lower = batch_ind * self.MAX_BATCH_SIZE	# Lower bound of index range
 			ind_upper = batch_ind * self.MAX_BATCH_SIZE + self.MAX_BATCH_SIZE	# Upper bound of index range
-			if ind_upper > self.N - 1 and self.N > 1:
-				ind_upper = self.N - 1
+			if ind_upper > self.N and self.N > 1:
+				ind_upper = self.N
+
+			# print('Lower index:',ind_lower,'Upper index:',ind_upper)
 
 			batch_Xs = self.Xs[ ind_lower : ind_upper ]
 			batch_ys = self.ys[ ind_lower : ind_upper ]
@@ -246,6 +218,8 @@ class CNN():
 		if training: self.feed_forwards_cycle_index += 1
 		for layer in self.structure:
 			X = layer._forwards(X)
+			# print('Layer index:',layer.MODEL_STRUCTURE_INDEX)
+			# print('Output:',X)
 		return X
 
 	@staticmethod
@@ -433,10 +407,10 @@ class CNN():
 				moment2 = self.adam_params[param_type]['moment2']
 				eps = self.adam_params['epsilon']
 
-				moment1 = self.model.BETA1 * moment1 + (1-self.model.BETA1) * cost_gradient
-				moment2 = self.model.BETA2 * moment2 + (1-self.model.BETA2) * np.square(cost_gradient)
-				moment1_hat = moment1 / (1-np.power(self.model.BETA1,self.model.iteration_index))
-				moment2_hat = moment2 / (1-np.power(self.model.BETA2,self.model.iteration_index))
+				moment1 = self.model.BETA1 * moment1 + (1 - self.model.BETA1) * cost_gradient
+				moment2 = self.model.BETA2 * moment2 + (1 - self.model.BETA2) * np.square(cost_gradient)
+				moment1_hat = moment1 / (1 - np.power(self.model.BETA1,self.model.iteration_index + 1))
+				moment2_hat = moment2 / (1 - np.power(self.model.BETA2,self.model.iteration_index + 1))
 
 				self.adam_params[param_type]['moment1'] = moment1
 				self.adam_params[param_type]['moment2'] = moment2
@@ -881,7 +855,8 @@ class CNN():
 			self.input = _input
 
 			self.output = np.dot( self.weights, self.input ) + self.bias
-
+			
+			assert self.output.shape == (self.NUM_NODES,1)
 			self._track_metrics(output=self.output)
 			return self.output
 
@@ -901,7 +876,7 @@ class CNN():
 			
 			dC_dW = np.multiply( cost_gradient , dZ_dW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
 			assert dC_dW.shape == self.weights.shape, f'dC_dW shape {dC_dW.shape} does not match {self.weights.shape}'
-			self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to cost_gradient
+			# self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to cost_gradient
 			self.weights = self.weights - self._update_factor(dC_dW,'weight')
 
 			dC_dB = np.multiply( cost_gradient, dZ_dB )	# Element-wise multiplication
@@ -939,7 +914,9 @@ class CNN():
 				# Softmax is a special activation function used for output neurons. It normalizes outputs for each class between 0 and 1, and returns the probability that the input belongs to a specific class.
 				exp = np.exp(_input - np.max(_input))	# Normalises by max value - provides "numerical stability"
 				self.output = exp / np.sum(exp)
-				assert round(self.output.sum()) == 1, f'Output array sum {self.output.sum()} is not equal to 1. Array: {self.output.reshape((1,-1))}'
+				# print(_input)
+				# print(self.output)
+				assert round(self.output.sum()) == 1, f'Output array sum {self.output.sum()} is not equal to 1.\nInput Array: {self.input.reshape((1,-1))}\nOuput Array: {self.output.reshape((1,-1))}'
 			elif self.FUNCTION == 'sigmoid':
 				# The sigmoid function has a smooth gradient and outputs values between zero and one. For very high or low values of the input parameters, the network can be very slow to reach a prediction, called the vanishing gradient problem.
 				self.output = 1 / (1 + np.exp(-_input))

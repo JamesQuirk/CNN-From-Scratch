@@ -1,16 +1,12 @@
 # CNN From Scratch
 
-I am writing a Convolutional Neural Network Programme using only core Python packages. The idea behind this is that if I can build the model step by step, I will grow to understand how it works from the ground up. CNNs, being the most complicated ML algorithms should mean that once I have completed this I can understand all the other algorithms as well.
+This 'CNN From Scratch' is a simple CNN framework that has been coded using only numpy for matrix mathematics. This project was done to explore, in detail how Convolutional Neural Networks work.
 
 ## Diagram
 
-This diagram below shows a high level view of the structure of a Convolutional Neural Network.
+The diagram below shows an example forwards flow of a CNN.
 
-![CNN Diagram](./imgs/CNN_Diagram.png)
-
-Below is a quick sketch I made to help illustrate the flow through a CNN. The sketch depicts a simple input of shape 10x10 with a single convolutional layer using a filter of shape 3x3 and stride = 1. Then there is a pooling layer with a filter of shape 2x2 and stride 2 followed by a single fully connected layer before the binary output.
-
-![CNN Sketch](./imgs/CNN_Sketch.png)
+![CNN Forwards](./imgs/CNN_Forwards.png)
 
 
 ## Useful References

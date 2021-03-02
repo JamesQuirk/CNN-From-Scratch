@@ -1,7 +1,7 @@
 from src.cnn import CNN
 from src.cnn_analyser import CNN_Analyser
 
-model = CNN.load_model('nn_model_sgd_lr0-00001_12-11-01.pkl')
+model = CNN.load_model('nn_model_sgd_19-50-16.pkl')
 CA = CNN_Analyser(model)
 
 # print(model.get_model_details())
