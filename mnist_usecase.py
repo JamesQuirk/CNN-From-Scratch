@@ -30,9 +30,9 @@ model.prepare_model()
 input('Run training?')
 
 train_finish, training_duration = model.train(
-	train_images,
-	train_labels,
-	epochs=3,
+	train_images[:500],
+	train_labels[:500],
+	epochs=15,
 	max_batch_size=32,
 	shuffle=False,
 	cost_fn='cross_entropy',

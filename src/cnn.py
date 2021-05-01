@@ -20,9 +20,9 @@ class CNN():
 	This is the top level class. It contains sub-classes for each of the layers that are to be included in the model.
 	"""
 
-	def __init__(self,input_shape: tuple,optimiser_method='adam'):
+	def __init__(self,input_shape: tuple,optimiser_method='gd'):
 		'''
-		- optimiser_method (str): Options: ('sgd','adam') Default is 'adam'.
+		- optimiser_method (str): Options: ('gd','momentum','rmsprop','adam'). Default is 'gd'.
 		'''
 		assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
 		assert optimiser_method.lower() in CNN.SUPPORTED_OPTIMISERS, f'You must provide an optimiser that is supported. The options are: {CNN.SUPPORTED_OPTIMISERS}'
@@ -135,6 +135,7 @@ class CNN():
 		- beta1 (float): param used for Adam optimisation
 		- beta2 (float): param used for Adam optimisation
 		'''
+		ys = ys.reshape(-1,1) if ys.ndim == 1 else ys
 		# --------- ASSERTIONS -----------
 		# Check shapes and orientation are as expected
 		assert Xs.shape[0] == ys.shape[0], 'Dimension of input data and labels does not match.'
@@ -158,7 +159,7 @@ class CNN():
 		self.BETA1 = beta1
 		self.BETA2 = beta2
 		self.feed_forwards_cycle_index = -1
-		self.iteration_index = -1	# incremented at start of each backprop so needs to be iniated to -1
+		self.iteration_index = -1	# incremented at start of each backprop so needs to be initiated to -1
 		self.iteration_cost = 0
 		self.iteration_cost_gradient = 0
 
@@ -178,7 +179,7 @@ class CNN():
 
 		return dt.now(), dt.now() - train_start	# returns training finish time and duration.
 
-	SUPPORTED_OPTIMISERS = ('sgd','adam')
+	SUPPORTED_OPTIMISERS = ('gd','momentum','rmsprop','adam')
 
 	def _iterate_forwards(self):
 		for batch_ind in range(self.BATCH_COUNT):
@@ -195,6 +196,7 @@ class CNN():
 			batch_size = len(batch_Xs)
 
 			for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
+				print(X.shape)
 				prediction = self.predict(X,training=True)
 
 				self.iteration_cost += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size)
@@ -247,6 +249,7 @@ class CNN():
 		'''
 		Cost function to provide measure of model 'correctness'. returns vector cost value.
 		'''
+		print(label)
 		label = label.reshape((max(label.shape),1))	# reshape label to vertical array to match network output.
 		error = label - prediction	# Vector
 		if self.COST_FN == 'mse':
@@ -256,10 +259,13 @@ class CNN():
 				return -( 2 * error ) / batch_size	# Vector
 		elif self.COST_FN == 'cross_entropy':
 			if not derivative:
+				print('logprobs:',np.log(prediction))
 				cost = -np.sum(label * np.log(prediction)) / batch_size
+				print('Cost:',cost)
 				return cost
 			else:
 				return -(label/prediction) / batch_size
+				# return prediction - 
 
 	def save_model(self,name: str):
 		assert name.split('.')[-1] == 'pkl'
@@ -281,24 +287,28 @@ class CNN():
 		fan_in = shape[-1]
 		fan_out = shape[-2]
 		if method is None:
-			return np.random.normal(size=shape)
+			array = np.random.rand(fan_out,fan_in) * 0.01
 		elif method == 'kaiming_normal':
 			# AKA "he_normal" after Kaiming He.
-			return np.random.normal(size=shape) * np.sqrt(2./shape[-1])
+			array = np.random.normal(size=shape) * np.sqrt(2./fan_in)
 		elif method == 'kaiming_uniform':
-			return np.random.uniform(size=shape) * np.sqrt(6./fan_in)
+			array = np.random.uniform(size=shape) * np.sqrt(6./fan_in)
 		elif method == 'xavier_uniform':
-			return np.random.uniform(size=shape) * np.sqrt(6./(fan_in+fan_out))
+			array = np.random.uniform(size=shape) * np.sqrt(6./(fan_in+fan_out))
 		elif method == 'xavier_normal':
 			# https://arxiv.org/pdf/2004.09506.pdf
 			target_std = np.sqrt(2./np.sum(shape))
-			return np.random.normal(size=shape,scale=target_std)
+			array = np.random.normal(size=shape,scale=target_std)
 		elif method == 'abs_norm':
 			# Custom alternative
 			arr = np.random.normal(size=shape)
-			return arr / np.abs(arr).max()
+			array = arr / np.abs(arr).max()
 		elif method == 'uniform':
-			return np.random.uniform(size=shape) * (1./np.sqrt(fan_in))
+			array = np.random.uniform(size=shape) * (1./np.sqrt(fan_in))
+
+		print(f'Array init method: {method}, max: {array.max()}, min: {array.min()}, std: {array.std()}' )
+		print('Array:',array)
+		return array
 
 
 	class CNN_Layer:
@@ -346,7 +356,7 @@ class CNN():
 
 		def define_details(self):
 			details = {
-				'LAYER_INDEX':self.MODEL_LAYER_INDEX,
+				'LAYER_INDEX':self.MODEL_STRUCTURE_INDEX,
 				'LAYER_TYPE':self.LAYER_TYPE
 			}
 			if self.LAYER_TYPE is 'CONV':
@@ -852,12 +862,13 @@ class CNN():
 			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
-			self.input = _input
+			self.input = _input.reshape((-1,1))	# Convert to vertical
 
 			self.output = np.dot( self.weights, self.input ) + self.bias
 			
 			assert self.output.shape == (self.NUM_NODES,1)
 			self._track_metrics(output=self.output)
+			print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 			return self.output
 
 		def _backwards(self, cost_gradient):
@@ -937,6 +948,7 @@ class CNN():
 				pass
 
 			self._track_metrics(output=self.output)
+			print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 			return self.output
 
 		def _backwards(self,cost_gradient):
@@ -955,6 +967,7 @@ class CNN():
 				sig_square = np.broadcast_to( self.output ,(self.output.shape[-2],self.output.shape[-2]))	# Broadcasting output array to a square
 				identity = np.identity(self.output.shape[-2])	# Square identity array
 				sig_t_square = np.transpose(sig_square)
+				# dA_dZ = np.sum(sig_square * (identity - sig_t_square), axis=1, keepdims=True)	# Sum along rows -> result in vertical array
 				dA_dZ = sig_square * (identity - sig_t_square)	# Sum along rows -> result in vertical array
 
 				cost_gradient = np.broadcast_to( np.transpose(cost_gradient) , (cost_gradient.shape[-2],cost_gradient.shape[-2]))
