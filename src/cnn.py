@@ -20,16 +20,14 @@ class CNN():
 	This is the top level class. It contains sub-classes for each of the layers that are to be included in the model.
 	"""
 
-	def __init__(self,input_shape: tuple,optimiser_method='gd'):
+	def __init__(self,optimiser_method='gd'):
 		'''
 		- optimiser_method (str): Options: ('gd','momentum','rmsprop','adam'). Default is 'gd'.
 		'''
-		assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
 		assert optimiser_method.lower() in CNN.SUPPORTED_OPTIMISERS, f'You must provide an optimiser that is supported. The options are: {CNN.SUPPORTED_OPTIMISERS}'
 
 		self.is_prepared = False
 
-		self.INPUT_SHAPE = input_shape	# tuple to contain input shape
 		self.OPTIMISER_METHOD = optimiser_method.lower()
 
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
@@ -147,7 +145,7 @@ class CNN():
 		# --------- ASSIGNMENTS ----------
 		self.N = Xs.shape[0]	# Total number of examples in Xs
 		Xs, ys = np.array(Xs), np.array(ys)	# Convert data to numpy arrays in case not already.
-		self.Xs, self.ys = CNN.shuffle(Xs,ys,random_seed) if shuffle else Xs, ys
+		(self.Xs, self.ys) = CNN.shuffle(Xs,ys,random_seed) if shuffle else (Xs, ys)
 		self.EPOCHS = epochs
 		if self.OPTIMISER_METHOD == 'sgd':
 			self.MAX_BATCH_SIZE = 1
@@ -188,8 +186,9 @@ class CNN():
 			if ind_upper > self.N and self.N > 1:
 				ind_upper = self.N
 
-			# print('Lower index:',ind_lower,'Upper index:',ind_upper)
-
+			print('Lower index:',ind_lower,'Upper index:',ind_upper)
+			print(self.Xs)
+			print(self.BATCH_COUNT, self.Xs.shape)
 			batch_Xs = self.Xs[ ind_lower : ind_upper ]
 			batch_ys = self.ys[ ind_lower : ind_upper ]
 
@@ -228,10 +227,12 @@ class CNN():
 	def shuffle(X,y,random_seed=None):
 		if random_seed is not None:
 			np.random.seed(random_seed)
-		permutation = np.random.permutation( self.N )
-
-		self.Xs = Xs[permutation]
-		self.ys = ys[permutation]
+		permutation = np.random.permutation( X.shape[0] )
+		X_shuffled = X[permutation]
+		y_shuffled = y[permutation]
+		print(X_shuffled.shape,y_shuffled.shape)
+		assert X.shape == X_shuffled.shape, f'X shape: {X.shape} | X shuffled shape: {X_shuffled.shape}'
+		return (X_shuffled, y_shuffled)
 
 	def _initiate_tracking_metrics(self):
 		# Initiate model history tracker
@@ -264,8 +265,8 @@ class CNN():
 				print('Cost:',cost)
 				return cost
 			else:
-				return -(label/prediction) / batch_size
-				# return prediction - 
+				return - np.divide(label,prediction) / batch_size
+				# return prediction - label
 
 	def save_model(self,name: str):
 		assert name.split('.')[-1] == 'pkl'
@@ -280,16 +281,20 @@ class CNN():
 		return model
 
 	@staticmethod
-	def array_init(shape,method=None):
+	def array_init(shape,method=None,seed=None):
 		''' Random initialisation of weights array.
 		Xavier or Kaiming: (https://towardsdatascience.com/weight-initialization-in-neural-networks-a-journey-from-the-basics-to-kaiming-954fb9b47c79) '''
 		assert len(shape) >= 2
 		fan_in = shape[-1]
 		fan_out = shape[-2]
+
+		if seed:
+			np.random.seed(seed)
+
 		if method is None:
-			array = np.random.rand(fan_out,fan_in) * 0.01
+			array = np.random.randn(fan_out,fan_in) * 0.01
 		elif method == 'kaiming_normal':
-			# AKA "he_normal" after Kaiming He.
+			# AKA "he normal" after Kaiming He.
 			array = np.random.normal(size=shape) * np.sqrt(2./fan_in)
 		elif method == 'kaiming_uniform':
 			array = np.random.uniform(size=shape) * np.sqrt(6./fan_in)
@@ -305,6 +310,8 @@ class CNN():
 			array = arr / np.abs(arr).max()
 		elif method == 'uniform':
 			array = np.random.uniform(size=shape) * (1./np.sqrt(fan_in))
+		else:
+			raise BaseException('ERROR: Unrecognised array initialisation method: ' + method)
 
 		print(f'Array init method: {method}, max: {array.max()}, min: {array.min()}, std: {array.std()}' )
 		print('Array:',array)
@@ -430,7 +437,7 @@ class CNN():
 
 
 	class Conv_Layer(CNN_Layer):
-		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None):
+		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None,input_shape=None):
 			""" 
 			- filt_shape (tuple): A tuple object describing the 2D shape of the filter to be convolved over the input.
 			- num_filters (int): Number of filters to be used.
@@ -451,24 +458,27 @@ class CNN():
 			self.PAD_TYPE = None if pad_type is None else pad_type.lower()
 			self.RANDOM_SEED = random_seed
 			self.INITIATION_METHOD = None if initiation_method is None else initiation_method.lower()
+			if input_shape is not None:
+				assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
+			self.INPUT_SHAPE = input_shape
 
 		def prepare_layer(self):
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
-				INPUT_SHAPE = self.model.INPUT_SHAPE		# (channels, rows, cols)
+				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				INPUT_SHAPE = self.prev_layer.output.shape		# (channels, rows, cols)
+				self.INPUT_SHAPE = self.prev_layer.output.shape		# (channels, rows, cols)
 
-			assert len(INPUT_SHAPE) in (2,3), 'Invalid INPUT_SHAPE'
+			assert len(self.INPUT_SHAPE) in (2,3), 'Invalid INPUT_SHAPE'
 
 			# Convert 2D input to 3D.
-			if len(INPUT_SHAPE) == 2:
-				INPUT_SHAPE = tuple([1]) + INPUT_SHAPE	
+			if len(self.INPUT_SHAPE) == 2:
+				self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE	
 
-			NUM_INPUT_ROWS = INPUT_SHAPE[-2]
-			NUM_INPUT_COLS = INPUT_SHAPE[-1]
+			NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
+			NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
 
 			# Initiate filters
-			self.filters = CNN.array_init(shape=(self.NUM_FILTERS,INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD)
+			self.filters = CNN.array_init(shape=(self.NUM_FILTERS,self.INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)
 			np.random.seed(self.RANDOM_SEED)
 			self.bias = np.zeros(shape=(self.NUM_FILTERS,1))
 
@@ -627,7 +637,7 @@ class CNN():
 
 	
 	class Pool_Layer(CNN_Layer):
-		def __init__(self,filt_shape: tuple,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None):
+		def __init__(self,filt_shape: tuple,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None,input_shape=None):
 			'''
 			- filt_shape (tuple): A tuple object describing the 2D shape of the filter to use for pooling.
 			- stride (int): Size of steps to take when shifting the filter. (Currently stride_x = stride_y).
@@ -645,22 +655,25 @@ class CNN():
 			assert self.POOL_TYPE in ('max','mean','min')
 			self.PADDING = padding
 			self.PAD_TYPE = None if pad_type is None else pad_type.lower()
+			if input_shape is not None:
+				assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
+			self.INPUT_SHAPE = input_shape
 
 		def prepare_layer(self):
 			""" This needs to be done after the input has been identified - currently happens when train() is called. """
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
-				INPUT_SHAPE = self.model.INPUT_SHAPE		# (channels, rows, cols)
+				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				INPUT_SHAPE = self.prev_layer.output.shape		# (channels, rows, cols)
+				self.INPUT_SHAPE = self.prev_layer.output.shape		# (channels, rows, cols)
 
-			assert len(INPUT_SHAPE) in (2,3), 'Invalid INPUT_SHAPE'
+			assert len(self.INPUT_SHAPE) in (2,3), 'Invalid INPUT_SHAPE'
 
 			# Convert 2D input to 3D.
-			if len(INPUT_SHAPE) == 2:
-				INPUT_SHAPE = tuple([1]) + INPUT_SHAPE
+			if len(self.INPUT_SHAPE) == 2:
+				self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE
 
-			NUM_INPUT_ROWS = INPUT_SHAPE[-2]
-			NUM_INPUT_COLS = INPUT_SHAPE[-1]
+			NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
+			NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
 
 			# Need to account for padding.
 			if self.PAD_TYPE != None:
@@ -694,7 +707,7 @@ class CNN():
 			col_out = int((NUM_INPUT_COLS + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
 			row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
-			self.output = np.zeros(shape=(INPUT_SHAPE[0],row_out,col_out))	# Output initiated.
+			self.output = np.zeros(shape=(self.INPUT_SHAPE[0],row_out,col_out))	# Output initiated.
 			if self.PAD_TYPE == 'same':
 				assert self.output.shape[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
 
@@ -801,19 +814,23 @@ class CNN():
 	class Flatten_Layer(CNN_Layer):
 		""" A psuedo layer that simply adjusts the data dimension as it passes between 2D/3D Conv or Pool layers to the 1D FC layers. """
 
-		def __init__(self):
+		def __init__(self,input_shape):
 			super().__init__()
 
 			self.LAYER_TYPE = 'FLATTEN'
 			self.IS_TRAINABLE = False
+			self.INPUT_SHAPE = input_shape
 
 		def prepare_layer(self):
-			if self.prev_layer is None:
-				self.output = np.zeros(shape=(np.prod(self.model.INPUT_SHAPE),1))
+			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
+				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				self.output = np.zeros(shape=(self.prev_layer.output.size,1))
+				self.INPUT_SHAPE = self.prev_layer.output.shape
+			
+			self.output = np.zeros(shape=(np.prod(self.INPUT_SHAPE),1))
 
 		def _forwards(self,_input):
+			assert _input.shape == self.INPUT_SHAPE, f'ERROR:: Input has unexpected shape: {_input.shape} | expected: {self.INPUT_SHAPE}'
 			self.output = _input.reshape((_input.size,1))
 
 			self._track_metrics(output=self.output)
@@ -829,11 +846,12 @@ class CNN():
 		"""
 		The Fully Connected Layer is defined as being the layer of nodes and the weights of the connections that link those nodes to the previous layer.
 		"""
-		def __init__(self, num_nodes, activation: str=None,random_seed=42,initiation_method=None):
+		def __init__(self, num_nodes, activation: str=None,random_seed=42,initiation_method=None,input_shape=None):
 			"""
 			- n: Number of nodes in layer.
 			- activation: The name of the activation function to be used. The activation is handled by a CNN.Activation_Layer object that is transparent to the user here. Defaults to None - a transparent Activation layer will still be added however, the data passing through will be untouched.
 			- initiation_method (str): This is the method used to initiate the weights and biases. Options: "kaiming", "xavier" or None. Default is none - this simply takes random numbers from standard normal distribution with no scaling.
+			- input_shape (tuple): (n,1) or (1,n) where n is number of input nodes (features). 
 			"""
 			super().__init__()
 
@@ -843,17 +861,17 @@ class CNN():
 			self.ACTIVATION = None if activation is None else activation.lower()
 			self.RANDOM_SEED = random_seed
 			self.INITIATION_METHOD = None if initiation_method is None else initiation_method.lower()
+			if input_shape is not None:
+				assert len(input_shape) == 2 and np.prod(input_shape) == max(input_shape), 'Invalid input_shape tuple. Expected (n,1) or (1,n)'
+				self.INPUT_SHAPE = (max(input_shape),min(input_shape)) # Forces shape into (n,1) vertical.
 
 		def prepare_layer(self):
-			if self.prev_layer is None:
-				w_cols = np.prod(self.model.INPUT_SHAPE)
+			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
+				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				w_cols = self.prev_layer.output.size
+				self.INPUT_SHAPE = self.prev_layer.output.shape
 			
-			w_rows = self.NUM_NODES	# NOTE: "Each row corresponds to all connections of previous layer to a single node in current layer." - based on vertical node array.
-			np.random.seed(self.RANDOM_SEED)
-			# self.weights = np.random.normal(size=(w_rows,w_cols))	# NOTE: this is the correct orientation for vertical node array.
-			self.weights = CNN.array_init(shape=(w_rows,w_cols),method=self.INITIATION_METHOD)	# NOTE: this is the correct orientation for vertical node array.
+			self.weights = CNN.array_init(shape=(self.NUM_NODES,max(self.INPUT_SHAPE)),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)	# NOTE: this is the correct orientation for vertical node array.
 
 			self.bias = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: Recommended to initaite biases to zero.
 			
@@ -862,7 +880,9 @@ class CNN():
 			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
+			print(_input.shape)
 			self.input = _input.reshape((-1,1))	# Convert to vertical
+			assert self.input.shape == self.INPUT_SHAPE, f'Unexpected input shape.'
 
 			self.output = np.dot( self.weights, self.input ) + self.bias
 			
@@ -871,46 +891,53 @@ class CNN():
 			print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 			return self.output
 
-		def _backwards(self, cost_gradient):
+		def _backwards(self, dC_dZ):
 			"""
 			Take cost gradient dC/dZ (how the output of this layer affects the cost) and backpropogate
 
 			Z = W . I + B
 
 			"""
-			assert cost_gradient.shape == self.output.shape
-			self._track_metrics(cost_gradient=cost_gradient)
+			assert dC_dZ.shape == self.output.shape
+			self._track_metrics(cost_gradient=dC_dZ)
 
-			dZ_dW = np.transpose( self.input )	# Partial diff of weighted sum (Z) w.r.t. weights
+			dZ_dW = self.input.T	# Partial diff of weighted sum (Z) w.r.t. weights
 			dZ_dB = 1
-			dZ_dI = np.transpose( self.weights )	# Partial diff of weighted sum w.r.t. input to layer.
+			dZ_dI = self.weights.T	# Partial diff of weighted sum w.r.t. input to layer.
 			
-			dC_dW = np.multiply( cost_gradient , dZ_dW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
+			# dC_dW.shape === W.shape = (n(l),n(l-1)) | dZ_dW.shape = (1,n(l-1))
+			# dC_dW = np.multiply( dC_dZ , dZ_dW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
+			dC_dW = np.dot(dC_dZ,self.input.T)
 			assert dC_dW.shape == self.weights.shape, f'dC_dW shape {dC_dW.shape} does not match {self.weights.shape}'
-			# self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to cost_gradient
+			# self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to dC_dZ
 			self.weights = self.weights - self._update_factor(dC_dW,'weight')
 
-			dC_dB = np.multiply( cost_gradient, dZ_dB )	# Element-wise multiplication
+			dC_dB = dC_dZ * dZ_dB	# Element-wise multiplication (dZ_dB turns out to be just 1)
 
 			assert dC_dB.shape == self.bias.shape, f'dC_dW shape {dC_dB.shape} does not match {self.bias.shape}'
-			# self.bias = self.bias - ( self.model.LEARNING_RATE * dC_dB )	# NOTE: Adjustments done in opposite direction to cost_gradient
-			self.bias = self.bias - self._update_factor(dC_dB,'bias')	# NOTE: Adjustments done in opposite direction to cost_gradient
+			# self.bias = self.bias - ( self.model.LEARNING_RATE * dC_dB )	# NOTE: Adjustments done in opposite direction to dC_dZ
+			self.bias = self.bias - self._update_factor(dC_dB,'bias')	# NOTE: Adjustments done in opposite direction to dC_dZ
 
-			return np.matmul( dZ_dI , cost_gradient )	# Matrix multiplication
+			return np.dot( dZ_dI , dC_dZ )
 
 
 	class Activation(CNN_Layer):
-		def __init__(self,function: str=None,alpha=0.01):
+		def __init__(self,function: str=None,alpha=0.01,input_shape=None):
 			super().__init__()
 
 			self.LAYER_TYPE = 'ACTIVATION'
 			self.IS_TRAINABLE = False
 			self.alpha = alpha
+			self.INPUT_SHAPE = input_shape
 
 			self.FUNCTION = None if function is None else function.lower()
 
 		def prepare_layer(self):
-			self.output = np.zeros(shape=self.prev_layer.output.shape )
+			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
+				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
+			else:
+				self.INPUT_SHAPE = self.prev_layer.output.shape
+			self.output = np.zeros(shape=self.INPUT_SHAPE )
 
 		def _forwards(self,_input):
 			self.input = _input
@@ -919,8 +946,8 @@ class CNN():
 				self.output = _input
 			elif self.FUNCTION == 'relu':
 				# The ReLu function is highly computationally efficient but is not able to process inputs that approach zero or negative.
-				_input[_input<0] = 0
-				self.output = _input
+				# _input[_input<0] = 0
+				self.output = np.maximum(_input,0)
 			elif self.FUNCTION == 'softmax':
 				# Softmax is a special activation function used for output neurons. It normalizes outputs for each class between 0 and 1, and returns the probability that the input belongs to a specific class.
 				exp = np.exp(_input - np.max(_input))	# Normalises by max value - provides "numerical stability"
@@ -951,44 +978,50 @@ class CNN():
 			print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 			return self.output
 
-		def _backwards(self,cost_gradient):
-			# NOTE: Derivative of Activation w.r.t. z
-			self._track_metrics(cost_gradient=cost_gradient)
+		def _backwards(self,dC_dA):
+			# NOTE: Derivative of Activation w.r.t. Z
+			self._track_metrics(cost_gradient=dC_dA)
 
-			dA_dZ = None
+			dA_dZ = np.zeros(shape=(self.output.size,self.prev_layer.output.size))	# TODO: Will need varifying for Conv Activation.
 			if self.FUNCTION is None: # a = z
-				dA_dZ = np.ones( self.input.shape )
+				dA_dZ = np.eye( *dA_dZ.shape )	# '*' unpacks the shape tuple.
 			elif self.FUNCTION == 'relu':
-				dA_dZ = self.input
-				dA_dZ[dA_dZ <= 0] = 0
-				dA_dZ[dA_dZ > 0] = 1
+				input_diag = np.diag(self.input.flatten())
+				dA_dZ[input_diag > 0] = 1
 			elif self.FUNCTION == 'softmax':
 				# Generalised function is: del_sig(zi) / del_zj = sig(z_j)(d_kron - sig(z_i)). Where d_kron is Kronecker delta: 1 if i=j and 0 otherwise.
 				sig_square = np.broadcast_to( self.output ,(self.output.shape[-2],self.output.shape[-2]))	# Broadcasting output array to a square
 				identity = np.identity(self.output.shape[-2])	# Square identity array
 				sig_t_square = np.transpose(sig_square)
 				# dA_dZ = np.sum(sig_square * (identity - sig_t_square), axis=1, keepdims=True)	# Sum along rows -> result in vertical array
-				dA_dZ = sig_square * (identity - sig_t_square)	# Sum along rows -> result in vertical array
+				dA_dZ = sig_square * (identity - sig_t_square)
+				# dA_dZ = np.dot(self.output.T,(identity - sig_t_square)).T
 
-				cost_gradient = np.broadcast_to( np.transpose(cost_gradient) , (cost_gradient.shape[-2],cost_gradient.shape[-2]))
+				# cost_gradient = np.broadcast_to( np.transpose(cost_gradient) , (cost_gradient.shape[-2],cost_gradient.shape[-2]))
 			elif self.FUNCTION == 'sigmoid':
-				dA_dZ =  self.output * (1 - self.output)	# Element-wise multiplication.
+				dA_dZ = np.diag((self.output * (1 - self.output)).flatten())	# Element-wise multiplication.
 			elif self.FUNCTION == 'step': # TODO: Define "step function" derivative
-				pass
+				dA_dZ = None
 			elif self.FUNCTION == 'tanh':
-				dA_dZ =  1 - np.square( self.output )
+				dA_dZ = np.diag((1 - np.square( self.output )).flatten())
 			elif self.FUNCTION == 'swish': # TODO: Define "Swish function" derivative
-				pass
+				dA_dZ = None
 			elif self.FUNCTION == 'leaky relu':
-				dA_dZ = self.input
-				dA_dZ[dA_dZ > 0] = 1
-				dA_dZ[dA_dZ <= 0] = self.alpha
+				input_diag = np.diag(self.input.flatten())
+				input_diag[input_diag > 0] = 1
+				input_diag[input_diag < 0] = self.alpha
+				dA_dZ = input_diag
 			elif self.FUNCTION == 'parametric relu': # TODO: Define "Parametric ReLu" derivative
-				pass
+				dA_dZ = None
 			
-			assert dA_dZ is not None, f'WARNING:: No derivative defined for chosen activation function "{self.FUNCTION}"'
+			assert dA_dZ is not None, f'ERROR:: No derivative defined for chosen activation function "{self.FUNCTION}"'
 			
-			cost_gradient = np.sum( np.multiply( dA_dZ , cost_gradient ), axis=1, keepdims=True)	# Element-wise multiplication. Sum in case square matrix.
-			assert cost_gradient.shape == self.input.shape
-			return cost_gradient
+			print('Layer: ', self.LAYER_TYPE)
+			print('Local gradient shape:',dA_dZ.shape)
+			print('Cost gradient shape:',dC_dA.shape)
+			# dC_dZ = np.sum( np.multiply( dA_dZ , dC_dA ), axis=1, keepdims=True)	# Element-wise multiplication. Sum in case square matrix.
+			dC_dZ = np.dot(dA_dZ,dC_dA)
+
+			assert dC_dZ.shape == self.prev_layer.output.shape, f'Back propagating dC_dZ has shape: {dC_dZ.shape} when previous layer output has shape {self.prev_layer.output.shape}'
+			return dC_dZ
 
