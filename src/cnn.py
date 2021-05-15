@@ -89,7 +89,10 @@ class CNN():
 
 				print(f'Preparing Layer:: Type = {curr_layer.LAYER_TYPE} | Structure index = {curr_layer.MODEL_STRUCTURE_INDEX}')
 				curr_layer.prepare_layer()
-				print('--> Expected output shape:',curr_layer.output.shape)
+				print('--> Expected output shape:',curr_layer.OUTPUT_SHAPE)
+				if curr_layer.MODEL_STRUCTURE_INDEX == 0:
+					# First layer; set model input shape.
+					self.INPUT_SHAPE = curr_layer.INPUT_SHAPE
 
 		self.is_prepared = True
 		print(f'Model Prepared: {self.is_prepared}')
@@ -117,14 +120,14 @@ class CNN():
 		
 		return np.eye(num_cats)[array][0]	# Returns in the shape (N,num_cats)
 
-	def train(self,Xs,ys,epochs,max_batch_size=32,shuffle=False,random_seed=42,learning_rate=0.001,cost_fn='mse',beta1=0.9,beta2=0.999):
+	def train(self,Xs,ys,epochs,max_batch_size=32,shuffle=False,random_seed=42,learning_rate=0.01,cost_fn='mse',beta1=0.9,beta2=0.999):
 		'''
 		Should take array of inputs and array of labels of the same length.
 
 		[For each epoch] For each input, propogate forwards and backwards.
 
 		ARGS:
-		- Xs (np.ndarray or list): (N,ch,rows,cols). Where N is number of examples, ch is number of channels.
+		- Xs (np.ndarray or list): (N,ch,rows,cols) or (N,features). Where N is number of examples, ch is number of channels.
 		- ys (np.ndarray or list): (N,num_categories). e.g. ex1 label = [0,0,0,1,0] for 5 categories (one-hot encoded).
 		- epochs (int): Number of iterations over the data set.
 		- max_batch_size (int): Maximum number of examples in each batch. (Tensorflow defaults to 32. Also, batch_size > N will be truncated.)
@@ -133,24 +136,28 @@ class CNN():
 		- beta1 (float): param used for Adam optimisation
 		- beta2 (float): param used for Adam optimisation
 		'''
+		Xs, ys = np.array(Xs), np.array(ys)	# Convert data to numpy arrays in case not already.
 		ys = ys.reshape(-1,1) if ys.ndim == 1 else ys
 		# --------- ASSERTIONS -----------
 		# Check shapes and orientation are as expected
-		assert Xs.shape[0] == ys.shape[0], 'Dimension of input data and labels does not match.'
-		assert ys.shape[-1] == self.structure[-1].output.shape[0], 'Invalid shape for labels. Should be (N,num_categories)'	# NOTE: This assumes last layer in model have output that is a vertical array.
-		assert type(epochs) == int
+		assert self.structure[-1].LAYER_TYPE in ('FC','ACTIVATION'), 'Model must have either FC or ACTIVATION as final layer.'
+		assert Xs.shape[0] == ys.shape[0], f'Dimension (0) of input data [{Xs.shape}] and labels [{ys.shape}] does not match.'
+		assert Xs.ndim in (2,4), 'Xs must be either 2 dimensions (for NN) or 4 dimensions (for CNN).'
+		if Xs.ndim == 4:
+			assert Xs.shape[1:] == self.INPUT_SHAPE, f'Expected X shape to be: {self.INPUT_SHAPE}, instead received: {Xs.shape[1:]}'
+		elif Xs.ndim == 2:
+			assert (Xs.shape[1],1) == self.INPUT_SHAPE, f'Expected X shape to be: {self.INPUT_SHAPE}, instead received: {(Xs.shape[1],1)}'
+		assert ys.ndim == 2, f'ys should be a 2 dimensional array.'
+		assert type(epochs) == int, 'An integer value must be supplied for argument "epochs"'
 		assert int(max_batch_size) == max_batch_size and max_batch_size is not None, 'An integer value must be supplied for argument "max_batch_size"'
 		assert cost_fn.lower() in CNN.SUPPORTED_COST_FUNCTIONS, f'Chosen cost function not supported, please choose: {CNN.SUPPORTED_COST_FUNCTIONS}'
 		
+		
 		# --------- ASSIGNMENTS ----------
 		self.N = Xs.shape[0]	# Total number of examples in Xs
-		Xs, ys = np.array(Xs), np.array(ys)	# Convert data to numpy arrays in case not already.
 		(self.Xs, self.ys) = CNN.shuffle(Xs,ys,random_seed) if shuffle else (Xs, ys)
 		self.EPOCHS = epochs
-		if self.OPTIMISER_METHOD == 'sgd':
-			self.MAX_BATCH_SIZE = 1
-		else:
-			self.MAX_BATCH_SIZE = self.N if max_batch_size > self.N else max_batch_size
+		self.MAX_BATCH_SIZE = self.N if (max_batch_size is None or max_batch_size > self.N) else max_batch_size
 		self.BATCH_COUNT = math.ceil( self.N / self.MAX_BATCH_SIZE )
 		self.COST_FN = cost_fn.lower()
 		self.LEARNING_RATE = learning_rate
@@ -167,15 +174,38 @@ class CNN():
 		self.TOTAL_ITERATIONS = self.BATCH_COUNT * self.EPOCHS
 
 		self._initiate_tracking_metrics()
+		
+		# # Orientate the labels to be (nx,m)
+		# if self.ys.shape[1] == self.structure[-1].OUTPUT_SHAPE[0] and self.ys.shape[0] != self.structure[-1].OUTPUT_SHAPE[0]:
+			# self.ys = self.ys.T.copy()
 
 		# ---------- TRAIN -------------
 		train_start = dt.now()
 		for epoch_ind in range(self.EPOCHS):
 			self.epoch_ind = epoch_ind
+			self.epoch_accuracy = 0
 			
 			self._iterate_forwards()
 
 		return dt.now(), dt.now() - train_start	# returns training finish time and duration.
+
+	def print_train_progress(self,batch_index):
+		progess_bar_length = 30	# characters (not including '[' ']')
+		progress = (batch_index+1) / self.BATCH_COUNT
+		progressor = '=' * int(progress * progess_bar_length)
+		if progress < 1:
+			progressor += '>'
+		
+		progress_string = '[' + progressor + '-' * (progess_bar_length - len(progressor)) + ']'
+
+		metrics_string = f'Batch: {batch_index+1}/{self.BATCH_COUNT} | Acc: {self.epoch_accuracy*100:.2f}%'
+
+		print_string = f'Epoch {self.epoch_ind + 1}/{self.EPOCHS} ' + progress_string + ' ' + metrics_string
+
+		if batch_index + 1 == self.BATCH_COUNT:
+			print(print_string,end='\n')
+		else:
+			print(print_string,end='\r')
 
 	SUPPORTED_OPTIMISERS = ('gd','momentum','rmsprop','adam')
 
@@ -185,43 +215,57 @@ class CNN():
 			ind_upper = batch_ind * self.MAX_BATCH_SIZE + self.MAX_BATCH_SIZE	# Upper bound of index range
 			if ind_upper > self.N and self.N > 1:
 				ind_upper = self.N
+			self.current_batch_size = ind_upper - ind_lower
 
-			print('Lower index:',ind_lower,'Upper index:',ind_upper)
-			print(self.Xs)
-			print(self.BATCH_COUNT, self.Xs.shape)
-			batch_Xs = self.Xs[ ind_lower : ind_upper ]
-			batch_ys = self.ys[ ind_lower : ind_upper ]
+			# print('Lower index:',ind_lower,'Upper index:',ind_upper)
+			# print(self.Xs)
+			# print(self.BATCH_COUNT, self.Xs.shape)
+			batch_Xs = self.Xs[ ind_lower : ind_upper ].copy()
+			batch_ys = self.ys[ ind_lower : ind_upper ].copy()
+			# print(batch_Xs.shape,batch_ys.shape)
 
-			batch_size = len(batch_Xs)
+			predictions = self.predict(batch_Xs,training=True)
 
-			for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
-				print(X.shape)
-				prediction = self.predict(X,training=True)
+			self.iteration_cost = self.cost(predictions, batch_ys)
+			self.iteration_cost_gradient = self.cost(predictions,batch_ys,derivative=True)
 
-				self.iteration_cost += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size)
-				self.iteration_cost_gradient += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size,derivative=True)
+			batch_correct = np.sum((np.argmax(batch_ys.T,axis=0) == np.argmax(predictions,axis=0)))
+			self.epoch_accuracy = (self.epoch_accuracy * ind_lower + batch_correct) / (ind_upper+1)
+			# for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
+			# 	print(X.shape)
+			# 	prediction = self.predict(X,training=True)
 
-			print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Batch: {batch_ind+1}/{self.BATCH_COUNT} | Cost: {self.iteration_cost}')
+			# 	self.iteration_cost += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size)
+			# 	self.iteration_cost_gradient += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size,derivative=True)
 
-			self._iterate_backwards(self.iteration_cost_gradient)
+			# print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Batch: {batch_ind+1}/{self.BATCH_COUNT} | Cost: {self.iteration_cost}')
+			self.print_train_progress(batch_ind)
 
-	def _iterate_backwards(self,cost_gradient):
+			self._iterate_backwards()
+
+	def _iterate_backwards(self):
 		self.iteration_index += 1
 		self.history['cost'][self.iteration_index] = self.iteration_cost
 		# Backpropagate the cost_gradient
+		cost_gradient = self.iteration_cost_gradient
 		for layer in self.structure[::-1]:
 			cost_gradient = layer._backwards(cost_gradient)
 
 		self.iteration_cost = 0
 		self.iteration_cost_gradient = 0
 
-	def predict(self,X,training=False):
+	def predict(self,Xs,training=False):
 		if training: self.feed_forwards_cycle_index += 1
 		for layer in self.structure:
-			X = layer._forwards(X)
+			Xs = layer._forwards(Xs)
 			# print('Layer index:',layer.MODEL_STRUCTURE_INDEX)
 			# print('Output:',X)
-		return X
+		return Xs
+
+	def evaluate(self,Xs,ys):
+		predictions = self.predict(Xs,training=False)
+		accuracy = np.sum((np.argmax(ys.T,axis=0) == np.argmax(predictions,axis=0))) / len(Xs)
+		return accuracy
 
 	@staticmethod
 	def shuffle(X,y,random_seed=None):
@@ -246,27 +290,29 @@ class CNN():
 
 	SUPPORTED_COST_FUNCTIONS = ('mse','cross_entropy')
 
-	def cost(self,prediction,label,batch_size,derivative=False):
+	def cost(self,predictions,labels,derivative=False):
 		'''
 		Cost function to provide measure of model 'correctness'. returns vector cost value.
 		'''
-		print(label)
-		label = label.reshape((max(label.shape),1))	# reshape label to vertical array to match network output.
-		error = label - prediction	# Vector
+		labels = labels.T	# Transpose labels to (cats,batch_size)
+		assert labels.ndim == 2, f'Expected 2 dimensional array; instead got {labels.ndim} dims.'
+		assert predictions.shape == labels.shape, f'Model output shape, {predictions.shape}, does not match labels shape, {labels.shape}.'
+		batch_size = labels.shape[1]
+
 		if self.COST_FN == 'mse':
+			error = predictions - labels	# Vector
 			if not derivative:
-				return np.sum( np.square( error ) ) / (batch_size * prediction.size)	# Vector
+				return np.sum( np.square( error ) ) / (batch_size * labels.shape[0])	# Vector
 			else:
 				return -( 2 * error ) / batch_size	# Vector
 		elif self.COST_FN == 'cross_entropy':
 			if not derivative:
-				print('logprobs:',np.log(prediction))
-				cost = -np.sum(label * np.log(prediction)) / batch_size
-				print('Cost:',cost)
+				# print('logprobs:',np.log(predictions))
+				cost = -np.sum(labels * np.log(predictions)) / batch_size
+				# print('Cost:',cost)
 				return cost
 			else:
-				return - np.divide(label,prediction) / batch_size
-				# return prediction - label
+				return - np.divide(labels,predictions) / batch_size
 
 	def save_model(self,name: str):
 		assert name.split('.')[-1] == 'pkl'
@@ -437,21 +483,26 @@ class CNN():
 
 
 	class Conv_Layer(CNN_Layer):
-		def __init__(self,filt_shape: tuple,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None,input_shape=None):
+		def __init__(self,filt_shape: tuple or int,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None,input_shape=None):
 			""" 
-			- filt_shape (tuple): A tuple object describing the 2D shape of the filter to be convolved over the input.
+			- filt_shape (int/tuple): Number of rows and columns of each filter. INT if rows == cols. TUPLE if rows != cols.
 			- num_filters (int): Number of filters to be used.
 			- stride (int): Size of steps to take when shifting the filter. (Currently stride_x = stride_y).
 			- padding (int): Width of zero-padding to apply on each side of the array. Only applied if pad_type is None.
 			- pad_type (str): Options: same (output shape is same as input shape), valid (equal to padding=0), include (padding added evenly on all sides of the array to allow the filter to shift over the input an integer number of times - avoid excluding input data).
 			- random_seed (int): The seed provided to numpy before initiating the filters and biases. random_seed=None will result in no seed being provided meaning numpy will generate it dynamically each time.
 			- initiation_method (str): This is the method used to initiate the weights and biases. Options: "kaiming", "xavier" or None. Default is none - this simply takes random numbers from standard normal distribution with no scaling.
+			- input_shape (tuple): The input shape of single example (observation).
 			"""
 			super().__init__()
 
 			self.LAYER_TYPE = 'CONV'
 			self.IS_TRAINABLE = True
-			self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
+			if type(filt_shape) == tuple:
+				assert len(filt_shape) == 2, 'Expected 2 dimensional tuple in form: (rows,cols)'
+				self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
+			elif type(filt_shape) == int:
+				self.FILT_SHAPE = (filt_shape,filt_shape)
 			self.NUM_FILTERS = num_filters
 			self.STRIDE = stride
 			self.PADDING = padding
@@ -466,20 +517,19 @@ class CNN():
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				self.INPUT_SHAPE = self.prev_layer.output.shape		# (channels, rows, cols)
+				self.INPUT_SHAPE = self.prev_layer.OUTPUT_SHAPE		# (channels, rows, cols)
 
-			assert len(self.INPUT_SHAPE) in (2,3), 'Invalid INPUT_SHAPE'
+			assert len(self.INPUT_SHAPE) == 3, 'Invalid INPUT_SHAPE'
 
-			# Convert 2D input to 3D.
-			if len(self.INPUT_SHAPE) == 2:
-				self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE	
+			# # Convert 2D input to 3D.
+			# if len(self.INPUT_SHAPE) == 2:
+			# 	self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE	
 
 			NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
 			NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
 
 			# Initiate filters
 			self.filters = CNN.array_init(shape=(self.NUM_FILTERS,self.INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)
-			np.random.seed(self.RANDOM_SEED)
 			self.bias = np.zeros(shape=(self.NUM_FILTERS,1))
 
 			# Need to account for padding.
@@ -514,34 +564,40 @@ class CNN():
 			col_out = int((NUM_INPUT_COLS + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
 			row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
-			self.output = np.zeros(shape=(self.NUM_FILTERS,row_out,col_out))	# Output initiated.
+			self.OUTPUT_SHAPE = (self.NUM_FILTERS,row_out,col_out)
+			# self.output = np.zeros(shape=(self.NUM_FILTERS,row_out,col_out))	# Output initiated.
 			if self.PAD_TYPE == 'same':
-				assert self.output.shape[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
+				assert self.OUTPUT_SHAPE[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
 
 			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
-			self.output[:] = 0 # Output must be re-initiated before each run
+			# self.output[:] = 0 # Output must be re-initiated before each run
+			# if _input.ndim == 3:
+			# 	self.input = _input
+			# elif _input.ndim == 2:
+			# 	self.input = np.array( [ _input ] )	# NOTE: 'fakes' number of channels to be 1.
+			assert _input.ndim == 4 and _input.shape[1:] == self.INPUT_SHAPE, f'Input shape, {_input.shape[1:]}, expected to be, {self.INPUT_SHAPE} for each example (observation).'
 
-			if _input.ndim == 3:
-				self.input = _input
-			elif _input.ndim == 2:
-				self.input = np.array( [ _input ] )	# NOTE: 'fakes' number of channels to be 1.
+			batch_size = _input.shape[0]
 
 			# Apply the padding to the input.
-			self.padded_input = np.pad(self.input,[(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant')
+			self.padded_input = np.pad(self.input,[(0,0),(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant',constant_values=(0,0))
 
-			proc_rows, proc_cols = self.padded_input.shape[-2:]
+			self.output = np.zeros(shape=(batch_size,*self.OUTPUT_SHAPE))
 
-			for filt_index in range(self.NUM_FILTERS):
-				filt = self.filters[filt_index]
-				
-				filt_channels, filt_rows, filt_cols = filt.shape
+			# proc_rows, proc_cols = self.padded_input.shape[-2:]
+			for i in range(batch_size):
+				for filt_index in range(self.NUM_FILTERS):
+					filt = self.filters[filt_index]
+					
+					filt_channels, filt_rows, filt_cols = filt.shape
 
-				for channel_index in range(filt_channels):
-					self.output[filt_index] += CNN.Conv_Layer.convolve( self.padded_input[channel_index], filt[channel_index], self.STRIDE )
-				
-				self.output[filt_index] += self.bias[filt_index]
+					for channel_index in range(filt_channels):
+						self.output[i,filt_index] += CNN.Conv_Layer.convolve( self.padded_input[i,channel_index], filt[channel_index], self.STRIDE )
+					
+					self.output[i,filt_index] += self.bias[filt_index]
+
 
 			self._track_metrics(output=self.output)
 			return self.output	# NOTE: Output is 3D array of shape: ( NUM_FILTS, NUM_ROWS, NUM_COLS )
@@ -550,55 +606,62 @@ class CNN():
 			assert cost_gradient.shape == self.output.shape, f'cost_gradient shape [{cost_gradient.shape}] does not match layer output shape [{self.output.shape}].'
 			self._track_metrics(cost_gradient=cost_gradient)
 
-			_, c_rows, c_cols = cost_gradient.shape
+			_,_, c_rows, c_cols = cost_gradient.shape
 			dilation_idx_row = np.arange(c_rows-1) + 1	# Intiatial indices for insertion of zeros
 			dilation_idx_col = np.arange(c_cols-1) + 1	# Intiatial indices for insertion of zeros
-			cost_gradient_dilated = cost_gradient
 			for n in range(1,self.STRIDE):
 				cost_gradient_dilated = np.insert(
-					np.insert( cost_gradient_dilated, dilation_idx_row * n, 0, axis=1 ),
-					dilation_idx_col * n, 0, axis=2)	# the n multiplier is to increment the indices in the non-uniform manner required.
+					np.insert( cost_gradient, dilation_idx_row * n, 0, axis=2 ),
+					dilation_idx_col * n, 0, axis=3)	# the n multiplier is to increment the indices in the non-uniform manner required.
 			# print(f'cost_gradient shape: {cost_gradient.shape} | cost_gradient_dilated shape: {cost_gradient_dilated.shape}')
+			# assert cost_gradient_dilated.shape == self.input.shape, f'Dilated cost gradient shape, {cost_gradient_dilated.shape}, does not match layer input shape, {self.input.shape}.'
 
-			dCdF = []	# initiate as list then convert to np.array
-			dCdX_pad_excl = []
-			# Find cost gradient wrt previous output.
-			rotated_filters = np.rot90( self.filters, k=2, axes=(1,2) )	# rotate 2x90 degs, rotating in direction of rows to columns.
-			for r_filt_ind in range(rotated_filters.shape[0]):
-				filt_1_container = []
-				filt_2_container = []
-				for channel_index in range(self.padded_input.shape[0]):
-					# dCdF
-					filt_1_container.append( CNN.Conv_Layer.convolve( self.padded_input[channel_index], cost_gradient_dilated[r_filt_ind], stride=1 ) )
-					# dCdX
-					filt_2_container.append( CNN.Conv_Layer.convolve( cost_gradient_dilated[r_filt_ind], rotated_filters[r_filt_ind][channel_index], stride=1, full_convolve=True ) )
-				dCdF.append(filt_1_container)
-				dCdX_pad_excl.append(filt_2_container)
-			dCdF = np.array( dCdF )
-			dCdX_pad_excl = np.array( dCdX_pad_excl ).sum(axis=0)	# NOTE: This is the cost gradient w.r.t. the padded input and potentially excluding pixels.
-			
+			batch_size, channels, height, width = self.padded_input.shape
+
 			# Account for filter not shifting over input an integer number of times with given stride.
-			pxls_excl_x = (self.padded_input.shape[2] - self.FILT_SHAPE[1]) % self.STRIDE	# pixels excluded in x direction (cols)
-			pxls_excl_y = (self.padded_input.shape[1] - self.FILT_SHAPE[0]) % self.STRIDE	# pixels excluded in y direction (rows)
+			pxls_excl_x = (self.padded_input.shape[3] - self.FILT_SHAPE[1]) % self.STRIDE	# pixels excluded in x direction (cols)
+			pxls_excl_y = (self.padded_input.shape[2] - self.FILT_SHAPE[0]) % self.STRIDE	# pixels excluded in y direction (rows)
+
+			# dCdF = []	# initiate as list then convert to np.array
+			# dCdX_pad_excl = []
+			dCdF = np.zeros(shape=self.filters.shape)
+			dCdX_pad = np.zeros(shape=self.padded_input.shape)
+			# Find cost gradient wrt previous output and filters.
+			rotated_filters = np.rot90( self.filters, k=2, axes=(1,2) )	# rotate 2x90 degs, rotating in direction of rows to columns.
+			for i in range(batch_size):
+				for filt_index in range(self.NUM_FILTERS):
+					# filt_1_container = []
+					# filt_2_container = []
+					for channel_index in range(channels):
+						# dCdF
+						# filt_1_container.append( CNN.Conv_Layer.convolve( self.padded_input[channel_index], cost_gradient_dilated[r_filt_ind], stride=1 ) )
+						dCdF[filt_index, channel_index] += CNN.Conv_Layer.convolve( self.padded_input[i,channel_index], cost_gradient_dilated[i,filt_index], stride=1 )
+						# dCdX
+						# filt_2_container.append( CNN.Conv_Layer.convolve( cost_gradient_dilated[r_filt_ind], rotated_filters[r_filt_ind][channel_index], stride=1, full_convolve=True ) )
+						dCdX_pad[i,channel_index, : dCdX_pad.shape[1] - pxls_excl_y, : dCdX_pad.shape[2] - pxls_excl_x] += CNN.Conv_Layer.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
+					# dCdF.append(filt_1_container)
+					# dCdX_pad_excl.append(filt_2_container)
+			# dCdF = np.array( dCdF )
+			# dCdX_pad_excl = np.array( dCdX_pad_excl ).sum(axis=0)	# NOTE: This is the cost gradient w.r.t. the padded input and potentially excluding pixels.
+			
 			dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
 			assert dCdF.shape == self.filters.shape, f'dCdF shape [{dCdF.shape}] does not match filters shape [{self.filters.shape}].'
 			
-			dCdX_pad = np.zeros(shape=self.padded_input.shape)
-			dCdX_pad[:,: dCdX_pad.shape[1] - pxls_excl_y, : dCdX_pad.shape[2] - pxls_excl_x] = dCdX_pad_excl	# pixels excluded in forwards pass will now appear with cost_gradient = 0.
-
-			# Remove padding that was added to the input array.
-			dCdX = dCdX_pad[ : , self.ROW_UP_PAD : dCdX_pad.shape[1] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dCdX_pad.shape[2] - self.COL_RIGHT_PAD ]
-			assert dCdX.shape == self.input.shape, f'dCdX shape [{dCdX.shape}] does not match layer input shape [{self.input.shape}].'
-
 			# ADJUST THE FILTERS
 			# self.filters = self.filters - ( self.model.LEARNING_RATE * dCdF	)
 			self.filters = self.filters - self._update_factor(dCdF,'filter')
 
 			# ADJUST THE BIAS
-			dCdB = 1 * cost_gradient.sum(axis=(1,2)).reshape(self.bias.shape)
 			assert dCdB.shape == self.bias.shape, f'dCdB shape [{dCdB.shape}] does not match bias shape [{self.bias.shape}].'
-			# self.bias = self.bias - ( self.model.LEARNING_RATE * dCdB )	# NOTE: Adjustments done in opposite direction to cost_gradient
+			dCdB = 1 * cost_gradient.sum(axis=(1,2)).reshape(self.bias.shape)
 			self.bias = self.bias - self._update_factor(dCdB,'bias')	# NOTE: Adjustments done in opposite direction to cost_gradient
+
+			# dCdX_pad = np.zeros(shape=self.padded_input.shape)
+			# dCdX_pad[:,: dCdX_pad.shape[1] - pxls_excl_y, : dCdX_pad.shape[2] - pxls_excl_x] = dCdX_pad_excl	# pixels excluded in forwards pass will now appear with cost_gradient = 0.
+
+			# Remove padding that was added to the input array.
+			dCdX = dCdX_pad[ :, : , self.ROW_UP_PAD : dCdX_pad.shape[-2] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dCdX_pad.shape[-1] - self.COL_RIGHT_PAD ]
+			assert dCdX.shape == self.input.shape, f'dCdX shape [{dCdX.shape}] does not match layer input shape [{self.input.shape}].'
 
 			return dCdX
 
@@ -637,19 +700,24 @@ class CNN():
 
 	
 	class Pool_Layer(CNN_Layer):
-		def __init__(self,filt_shape: tuple,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None,input_shape=None):
+		def __init__(self,filt_shape: tuple or int,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None,input_shape=None):
 			'''
-			- filt_shape (tuple): A tuple object describing the 2D shape of the filter to use for pooling.
+			- filt_shape (int/tuple): Number of rows and columns of each filter. INT if rows == cols. TUPLE if rows != cols.
 			- stride (int): Size of steps to take when shifting the filter. (Currently stride_x = stride_y).
 			- pool_type (str): Pooling method to be applied. Options = max, min, mean.
 			- padding (int): Width of zero-padding to apply on each side of the array. Only applied if pad_type is None.
 			- pad_type (str): Options: same (output shape is same as input shape), valid (equal to padding=0), include (padding added evenly on all sides of the array to allow the filter to shift over the input an integer number of times - avoid excluding input data).
+			- input_shape (tuple): Input shape of a single example (observation). Expected (channels, rows, cols)
 			'''
 			super().__init__()
 
 			self.LAYER_TYPE = 'POOL'
 			self.IS_TRAINABLE = False
-			self.FILT_SHAPE = filt_shape	# 2D array (rows,cols)
+			if type(filt_shape) == tuple:
+				assert len(filt_shape) == 2, 'Expected 2 dimensional tuple in form: (rows,cols)'
+				self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
+			elif type(filt_shape) == int:
+				self.FILT_SHAPE = (filt_shape,filt_shape)
 			self.STRIDE = stride
 			self.POOL_TYPE = pool_type.lower()
 			assert self.POOL_TYPE in ('max','mean','min')
@@ -664,13 +732,13 @@ class CNN():
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				self.INPUT_SHAPE = self.prev_layer.output.shape		# (channels, rows, cols)
+				self.INPUT_SHAPE = self.prev_layer.OUTPUT_SHAPE		# (channels, rows, cols)
 
-			assert len(self.INPUT_SHAPE) in (2,3), 'Invalid INPUT_SHAPE'
+			assert len(self.INPUT_SHAPE) == 3, 'Invalid INPUT_SHAPE'
 
-			# Convert 2D input to 3D.
-			if len(self.INPUT_SHAPE) == 2:
-				self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE
+			# # Convert 2D input to 3D.
+			# if len(self.INPUT_SHAPE) == 2:
+			# 	self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE
 
 			NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
 			NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
@@ -707,44 +775,49 @@ class CNN():
 			col_out = int((NUM_INPUT_COLS + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
 			row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
-			self.output = np.zeros(shape=(self.INPUT_SHAPE[0],row_out,col_out))	# Output initiated.
+			self.OUTPUT_SHAPE = (self.INPUT_SHAPE[0],row_out,col_out)
+			# self.output = np.zeros(shape=(self.INPUT_SHAPE[0],row_out,col_out))	# Output initiated.
 			if self.PAD_TYPE == 'same':
-				assert self.output.shape[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
+				assert self.OUTPUT_SHAPE == self.INPUT_SHAPE	# Channels may differ.
 
 		def _forwards(self,_input):
-			if _input.ndim == 3:
-				self.input = _input
-			elif _input.ndim == 2:
-				self.input = np.array( [ _input ] )	# NOTE: 'fakes' number of channels to be 1.
+			# if _input.ndim == 3:
+			# 	self.input = _input
+			# elif _input.ndim == 2:
+			# 	self.input = np.array( [ _input ] )	# NOTE: 'fakes' number of channels to be 1.
 
-			assert self.input.ndim == 3
+			assert _input.ndim == 4 and _input.shape[1:] == self.INPUT_SHAPE, f'Input shape, {_input.shape[1:]}, expected to be, {self.INPUT_SHAPE} for each example (observation).'
 
 			# Apply the padding to the input.
-			self.padded_input = np.pad(self.input,[(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant')
+			self.padded_input = np.pad(self.input,[(0,0),(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant',constant_values=(0,0))
 
-			channels, proc_rows, proc_cols = self.padded_input.shape
+			self.output = np.zeros(shape=(batch_size,*self.OUTPUT_SHAPE))
 
-			# Shift 'Filter Window' over the image and perform the downsampling
-			curr_y = out_y = 0
-			while curr_y <= proc_rows - self.FILT_SHAPE[0]:
-				curr_x = out_x = 0
-				while curr_x <= proc_cols - self.FILT_SHAPE[1]:
-					for channel_index in range(channels):
-						if self.POOL_TYPE == 'max':
-							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
-							self.output[channel_index, out_y, out_x] = np.max( sub_arr )
-						elif self.POOL_TYPE == 'min':
-							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
-							self.output[channel_index, out_y, out_x] = np.min( sub_arr )
-						elif self.POOL_TYPE == 'mean':
-							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
-							self.output[channel_index, out_y, out_x] = np.mean( sub_arr )
+			batch_size, channels, proc_rows, proc_cols = self.padded_input.shape
 
-					curr_x += self.STRIDE
-					out_x += 1
-				curr_y += self.STRIDE
-				out_y += 1
+			for i in range(batch_size):
+				# Shift 'Filter Window' over the image and perform the downsampling
+				curr_y = out_y = 0
+				while curr_y <= proc_rows - self.FILT_SHAPE[0]:
+					curr_x = out_x = 0
+					while curr_x <= proc_cols - self.FILT_SHAPE[1]:
+						for channel_index in range(channels):
+							if self.POOL_TYPE == 'max':
+								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+								self.output[i,channel_index, out_y, out_x] = np.max( sub_arr )
+							elif self.POOL_TYPE == 'min':
+								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+								self.output[i,channel_index, out_y, out_x] = np.min( sub_arr )
+							elif self.POOL_TYPE == 'mean':
+								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+								self.output[i,channel_index, out_y, out_x] = np.mean( sub_arr )
 
+						curr_x += self.STRIDE
+						out_x += 1
+					curr_y += self.STRIDE
+					out_y += 1
+
+			assert len(self.output.shape) == 4 and self.output.shape[1:] == self.OUTPUT_SHAPE, f'Output shape, {self.output.shape[1:]}, not as expected, {self.OUTPUT_SHAPE}'
 			self._track_metrics(output=self.output)
 			return self.output
 
@@ -766,80 +839,85 @@ class CNN():
 			assert cost_gradient.shape == self.output.shape
 			self._track_metrics(cost_gradient=cost_gradient)
 			# Initiate to input shape.
-			prev_cost_gradient = np.zeros_like(self.padded_input)
+			dC_dIpad = np.zeros_like(self.padded_input)
 
-			assert cost_gradient.shape[0] == prev_cost_gradient.shape[0]
-
-			channels, rows, cols = prev_cost_gradient.shape
+			batch_size, channels, padded_rows, padded_cols = dC_dIpad.shape
 
 			# Step over the array similarly to the forwards pass and compute the expanded cost gradients.
-			curr_y = cost_y = 0
-			while curr_y <= rows - self.FILT_SHAPE[0]:
-				curr_x = cost_x = 0
-				while curr_x <= cols - self.FILT_SHAPE[1]:
-					for channel_index in range(channels):
-						if self.POOL_TYPE == 'max':
-							# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
-							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
-							max_node_y, max_node_x = np.array( np.unravel_index( np.argmax( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
+			for i in range(batch_size):
+				curr_y = cost_y = 0
+				while curr_y <= padded_rows - self.FILT_SHAPE[0]:
+					curr_x = cost_x = 0
+					while curr_x <= padded_cols - self.FILT_SHAPE[1]:
+						for channel_index in range(channels):
+							sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+							cost_val = cost_gradient[i, channel_index,cost_y,cost_x]
+							if self.POOL_TYPE == 'max':
+								# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
+								max_node_y, max_node_x = np.array( np.unravel_index( np.argmax( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
 
-							cost_val = cost_gradient[channel_index,cost_y,cost_x]
+								dC_dIpad[i, channel_index, max_node_y, max_node_x] += cost_val
+							elif self.POOL_TYPE == 'min':
+								# Set value of node that corresponds with the min value node of the input to the cost gradient value at (cost_y,cost_x)
+								min_node_y, min_node_x = np.array( np.unravel_index( np.argmin( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
 
-							prev_cost_gradient[channel_index, max_node_y, max_node_x] += cost_val
-						elif self.POOL_TYPE == 'min':
-							# Set value of node that corresponds with the min value node of the input to the cost gradient value at (cost_y,cost_x)
-							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
-							min_node_y, min_node_x = np.array( np.unravel_index( np.argmin( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
+								dC_dIpad[i, channel_index, min_node_y, min_node_x] += cost_val
+							elif self.POOL_TYPE == 'mean':
+								sub_arr_props = sub_arr / sub_arr.sum()
 
-							cost_val = cost_gradient[channel_index,cost_y,cost_x]
+								dC_dIpad[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += sub_arr_props * cost_val
 
-							prev_cost_gradient[channel_index, min_node_y, min_node_x] += cost_val
-						elif self.POOL_TYPE == 'mean':
-							sub_arr = self.padded_input[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+						curr_x += self.STRIDE
+						cost_x += 1
+					curr_y += self.STRIDE
+					cost_y += 1
 
-							cost_val = cost_gradient[channel_index,cost_y,cost_x]
-							
-							sub_arr_props = sub_arr / sub_arr.sum()
+			# Remove padding that was added to the input array.
+			dC_dI = dC_dIpad[ :, : , self.ROW_UP_PAD : dC_dIpad.shape[-2] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dC_dIpad.shape[-1] - self.COL_RIGHT_PAD ]
 
-							prev_cost_gradient[ channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += sub_arr_props * cost_val
-
-					curr_x += self.STRIDE
-					cost_x += 1
-				curr_y += self.STRIDE
-				cost_y += 1
-
-			return prev_cost_gradient
+			assert dC_dI.shape == self.input.shape, f'dC/dI shape [{dC_dI.shape}] does not match layer input shape [{self.input.shape}].'
+			return dC_dI
 
 
 	class Flatten_Layer(CNN_Layer):
-		""" A psuedo layer that simply adjusts the data dimension as it passes between 2D/3D Conv or Pool layers to the 1D FC layers. """
+		""" A psuedo layer that simply adjusts the data dimension as it passes between 2D Conv or Pool layers to the 1D FC layers. 
+		The output shapes of the Conv/ Pool layer is expected to be (m,c,h,w) which is converted to (n,m)."""
 
 		def __init__(self,input_shape):
+			"""
+			input_shape (tuple): Shape of a single example eg (channels,height,width). Irrespective of batch size. 
+			"""
+
 			super().__init__()
 
 			self.LAYER_TYPE = 'FLATTEN'
 			self.IS_TRAINABLE = False
+			if input_shape is not None:
+				assert len(input_shape) == 3, f'ERROR: Expected input_shape to be a tuple of length 3; (channels, height, width).'
 			self.INPUT_SHAPE = input_shape
 
 		def prepare_layer(self):
 			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				self.INPUT_SHAPE = self.prev_layer.output.shape
-			
-			self.output = np.zeros(shape=(np.prod(self.INPUT_SHAPE),1))
+				self.INPUT_SHAPE = self.prev_layer.OUTPUT_SHAPE
+			self.OUTPUT_SHAPE = (np.prod(self.INPUT_SHAPE),1)	# Output shape for a single example.
+			# self.output = np.zeros(shape=(np.prod(self.INPUT_SHAPE[1:]),self.INPUT_SHAPE[0]))
 
 		def _forwards(self,_input):
-			assert _input.shape == self.INPUT_SHAPE, f'ERROR:: Input has unexpected shape: {_input.shape} | expected: {self.INPUT_SHAPE}'
-			self.output = _input.reshape((_input.size,1))
+			assert _input.shape[1:] == self.INPUT_SHAPE, f'ERROR:: Input has unexpected shape: {_input.shape[1:]} | expected: {self.INPUT_SHAPE}'
+			self.input = _input
+			self.output = _input.T.reshape((-1,_input.shape[0]))	# Taking transpose here puts each example into its own column - number of columns == number of examles.
 
 			self._track_metrics(output=self.output)
-			return self.output	# NOTE: Vertical array
+			return self.output	# NOTE: 2D matrix, (number of nodes, number of examples in batch)
 
 		def _backwards(self,cost_gradient):
+			"""
+			cost_gradient expected to have shape (n,m) where n == channels * height * width
+			"""
 			self._track_metrics(cost_gradient=cost_gradient)
-			if self.prev_layer is not None:
-				return cost_gradient.reshape(self.prev_layer.output.shape)
+			return cost_gradient.reshape(self.input.T.shape).T	# Outputs shape (m,c,h,w)
 
 
 	class FC_Layer(CNN_Layer):
@@ -851,7 +929,7 @@ class CNN():
 			- n: Number of nodes in layer.
 			- activation: The name of the activation function to be used. The activation is handled by a CNN.Activation_Layer object that is transparent to the user here. Defaults to None - a transparent Activation layer will still be added however, the data passing through will be untouched.
 			- initiation_method (str): This is the method used to initiate the weights and biases. Options: "kaiming", "xavier" or None. Default is none - this simply takes random numbers from standard normal distribution with no scaling.
-			- input_shape (tuple): (n,1) or (1,n) where n is number of input nodes (features). 
+			- input_shape (tuple): Input shape for a single example. (n,1) where n is number of input nodes (features).
 			"""
 			super().__init__()
 
@@ -862,33 +940,37 @@ class CNN():
 			self.RANDOM_SEED = random_seed
 			self.INITIATION_METHOD = None if initiation_method is None else initiation_method.lower()
 			if input_shape is not None:
-				assert len(input_shape) == 2 and np.prod(input_shape) == max(input_shape), 'Invalid input_shape tuple. Expected (n,1) or (1,n)'
-				self.INPUT_SHAPE = (max(input_shape),min(input_shape)) # Forces shape into (n,1) vertical.
+				assert len(input_shape) == 2 and input_shape[1] == 1, 'Invalid input_shape tuple. Expected (n,1)'
+			self.INPUT_SHAPE = input_shape
 
 		def prepare_layer(self):
 			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				self.INPUT_SHAPE = self.prev_layer.output.shape
+				self.INPUT_SHAPE = self.prev_layer.OUTPUT_SHAPE
 			
-			self.weights = CNN.array_init(shape=(self.NUM_NODES,max(self.INPUT_SHAPE)),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)	# NOTE: this is the correct orientation for vertical node array.
+			self.weights = CNN.array_init(shape=(self.NUM_NODES,self.INPUT_SHAPE[0]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)	# NOTE: this is the correct orientation for vertical node array.
 
 			self.bias = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: Recommended to initaite biases to zero.
 			
-			self.output = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: This is a vertical array.
+			self.OUTPUT_SHAPE = (self.NUM_NODES,1)
+			# self.output = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: This is a vertical array.
 
 			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
-			print(_input.shape)
-			self.input = _input.reshape((-1,1))	# Convert to vertical
-			assert self.input.shape == self.INPUT_SHAPE, f'Unexpected input shape.'
+			# print(_input.shape)
+			if self.prev_layer is None:
+				self.input = _input.T
+			else:
+				assert len(_input.shape) == 2 and _input.shape[0] == self.INPUT_SHAPE[0], f'Expected input of shape {self.INPUT_SHAPE} instead got {(_input.shape[0],1)}'
+				self.input = _input
 
 			self.output = np.dot( self.weights, self.input ) + self.bias
 			
-			assert self.output.shape == (self.NUM_NODES,1)
+			assert len(self.output.shape) == 2 and self.output.shape[0] == self.OUTPUT_SHAPE[0], f'Output shape, {(self.output.shape[0],1)}, not as expected, {self.OUTPUT_SHAPE}'
 			self._track_metrics(output=self.output)
-			print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
+			# print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 			return self.output
 
 		def _backwards(self, dC_dZ):
@@ -898,7 +980,7 @@ class CNN():
 			Z = W . I + B
 
 			"""
-			assert dC_dZ.shape == self.output.shape
+			assert dC_dZ.shape == self.output.shape, f'dC/dZ shape, {dC_dZ.shape}, does not match Z shape, {self.output.shape}.'
 			self._track_metrics(cost_gradient=dC_dZ)
 
 			dZ_dW = self.input.T	# Partial diff of weighted sum (Z) w.r.t. weights
@@ -907,18 +989,20 @@ class CNN():
 			
 			# dC_dW.shape === W.shape = (n(l),n(l-1)) | dZ_dW.shape = (1,n(l-1))
 			# dC_dW = np.multiply( dC_dZ , dZ_dW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
-			dC_dW = np.dot(dC_dZ,self.input.T)
-			assert dC_dW.shape == self.weights.shape, f'dC_dW shape {dC_dW.shape} does not match {self.weights.shape}'
+			dC_dW = np.dot(dC_dZ,dZ_dW)
+			assert dC_dW.shape == self.weights.shape, f'dC/dW shape {dC_dW.shape} does not match W shape {self.weights.shape}'
 			# self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to dC_dZ
 			self.weights = self.weights - self._update_factor(dC_dW,'weight')
 
-			dC_dB = dC_dZ * dZ_dB	# Element-wise multiplication (dZ_dB turns out to be just 1)
+			dC_dB = np.sum(dC_dZ * dZ_dB, axis=1,keepdims=True)	# Element-wise multiplication (dZ_dB turns out to be just 1)
 
-			assert dC_dB.shape == self.bias.shape, f'dC_dW shape {dC_dB.shape} does not match {self.bias.shape}'
+			assert dC_dB.shape == self.bias.shape, f'dC/dB shape {dC_dB.shape} does not match B shape {self.bias.shape}'
 			# self.bias = self.bias - ( self.model.LEARNING_RATE * dC_dB )	# NOTE: Adjustments done in opposite direction to dC_dZ
 			self.bias = self.bias - self._update_factor(dC_dB,'bias')	# NOTE: Adjustments done in opposite direction to dC_dZ
 
-			return np.dot( dZ_dI , dC_dZ )
+			dC_dI = np.dot( dZ_dI , dC_dZ )
+			assert dC_dI.shape == self.input.shape, f'dC/dI shape {dC_dI.shape} does not match input shape {self.input.shape}.'
+			return dC_dI
 
 
 	class Activation(CNN_Layer):
@@ -936,26 +1020,29 @@ class CNN():
 			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 			else:
-				self.INPUT_SHAPE = self.prev_layer.output.shape
-			self.output = np.zeros(shape=self.INPUT_SHAPE )
+				self.INPUT_SHAPE = self.prev_layer.OUTPUT_SHAPE
+			self.OUTPUT_SHAPE = self.INPUT_SHAPE
+			# self.output = np.zeros(shape=self.INPUT_SHAPE )
 
 		def _forwards(self,_input):
+			if self.prev_layer.LAYER_TYPE == 'FC':
+				assert len(_input.shape) == 2 and _input.shape[0] == self.INPUT_SHAPE[0], f'Expected input of shape {self.INPUT_SHAPE} instead got {(_input.shape[0],1)}'
 			self.input = _input
 			
 			if self.FUNCTION is None:
 				self.output = _input
-			elif self.FUNCTION == 'relu':
+			elif self.FUNCTION == 'relu':	# NOTE: This would work for Conv activation.
 				# The ReLu function is highly computationally efficient but is not able to process inputs that approach zero or negative.
-				# _input[_input<0] = 0
 				self.output = np.maximum(_input,0)
 			elif self.FUNCTION == 'softmax':
+				assert self.prev_layer.LAYER_TYPE == 'FC', 'Softmax activation function is not supported for non-FC inputs.'
 				# Softmax is a special activation function used for output neurons. It normalizes outputs for each class between 0 and 1, and returns the probability that the input belongs to a specific class.
-				exp = np.exp(_input - np.max(_input))	# Normalises by max value - provides "numerical stability"
-				self.output = exp / np.sum(exp)
+				exp = np.exp(_input - np.max(_input,axis=0))	# Normalises by max value - provides "numerical stability"
+				self.output = exp / np.sum(exp,axis=0)
 				# print(_input)
 				# print(self.output)
-				assert round(self.output.sum()) == 1, f'Output array sum {self.output.sum()} is not equal to 1.\nInput Array: {self.input.reshape((1,-1))}\nOuput Array: {self.output.reshape((1,-1))}'
-			elif self.FUNCTION == 'sigmoid':
+				# assert round(self.output.sum()) == 1, f'Output array sum {self.output.sum()} is not equal to 1.\nInput Array: {self.input.reshape((1,-1))}\nOuput Array: {self.output.reshape((1,-1))}'
+			elif self.FUNCTION == 'sigmoid':	# NOTE: This would work for Conv activation.
 				# The sigmoid function has a smooth gradient and outputs values between zero and one. For very high or low values of the input parameters, the network can be very slow to reach a prediction, called the vanishing gradient problem.
 				self.output = 1 / (1 + np.exp(-_input))
 			elif self.FUNCTION == 'step': # TODO: Define "step function" activation
@@ -973,33 +1060,38 @@ class CNN():
 			elif self.FUNCTION == 'parametric relu': # TODO: Define "Parametric ReLu"
 				#  The Parametric ReLu function allows the negative slope to be learned, performing backpropagation to learn the most effective slope for zero and negative input values.
 				pass
-
+			
+			assert self.output.shape == _input.shape, f'Output shape, {self.output.shape}, not the same as input shape, {_input.shape}.'
 			self._track_metrics(output=self.output)
-			print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
+			# print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 			return self.output
 
 		def _backwards(self,dC_dA):
-			# NOTE: Derivative of Activation w.r.t. Z
+			"""Compute derivative of Activation w.r.t. Z
+			NOTE: CURRENTLY NOT SUPPORTED FOR CONV/POOL LAYERS.
+			"""
+			assert dC_dA.shape == self.output.shape, f'dC/dA shape, {dC_dA.shape}, not as expected, {self.output.shape}.'
 			self._track_metrics(cost_gradient=dC_dA)
-
-			dA_dZ = np.zeros(shape=(self.output.size,self.prev_layer.output.size))	# TODO: Will need varifying for Conv Activation.
+			dA_dZ = np.zeros(shape=(self.output.shape[1],self.output.shape[0],self.prev_layer.output.shape[0]))	# TODO: Will need varifying for Conv Activation.
 			if self.FUNCTION is None: # a = z
-				dA_dZ = np.eye( *dA_dZ.shape )	# '*' unpacks the shape tuple.
+				dA_dZ = np.broadcast_to(np.diag(np.ones(dA_dZ.shape[-1])),( *dA_dZ.shape ))	# '*' unpacks the shape tuple.
 			elif self.FUNCTION == 'relu':
-				input_diag = np.diag(self.input.flatten())
-				dA_dZ[input_diag > 0] = 1
+				# Insert layer input along dA_dZ diagonals - values > 0 -> 1; values <= 0 -> 0
+				ix,iy = np.diag_indices_from(dA_dZ[0,:,:])
+				dA_dZ[:,iy,ix] = (self.input.T > 0).astype(int)
 			elif self.FUNCTION == 'softmax':
-				# Generalised function is: del_sig(zi) / del_zj = sig(z_j)(d_kron - sig(z_i)). Where d_kron is Kronecker delta: 1 if i=j and 0 otherwise.
-				sig_square = np.broadcast_to( self.output ,(self.output.shape[-2],self.output.shape[-2]))	# Broadcasting output array to a square
-				identity = np.identity(self.output.shape[-2])	# Square identity array
-				sig_t_square = np.transpose(sig_square)
-				# dA_dZ = np.sum(sig_square * (identity - sig_t_square), axis=1, keepdims=True)	# Sum along rows -> result in vertical array
-				dA_dZ = sig_square * (identity - sig_t_square)
-				# dA_dZ = np.dot(self.output.T,(identity - sig_t_square)).T
+				# Vectorised implementation from https://stackoverflow.com/questions/59286911/vectorized-softmax-gradient
+				# NOTE: Transpose is required to create the square matrices of each set of node values.
+				outputT = self.output.T
+				diag_matrices = outputT.reshape(outputT.shape[0],-1,1) * np.diag(np.ones(outputT.shape[1]))	# Diagonal Matrices
+				outer_product = np.matmul(outputT.reshape(outputT.shape[0],-1,1), outputT.reshape(outputT.shape[0],1,-1))	# Outer product
+				Jsm = diag_matrices - outer_product
+				dA_dZ = Jsm	# NOTE: Even though this equation uses softmax transpose at start, the output does not require transposing because the softmax derivative is symmetrical along diagonal.
 
-				# cost_gradient = np.broadcast_to( np.transpose(cost_gradient) , (cost_gradient.shape[-2],cost_gradient.shape[-2]))
 			elif self.FUNCTION == 'sigmoid':
-				dA_dZ = np.diag((self.output * (1 - self.output)).flatten())	# Element-wise multiplication.
+				# sig (1 - sig) across diagonals
+				ix,iy = np.diag_indices_from(dA_dZ[0,:,:])
+				dA_dZ[:,iy,ix] = (self.output * (1 - self.output)).T	# Element-wise multiplication.
 			elif self.FUNCTION == 'step': # TODO: Define "step function" derivative
 				dA_dZ = None
 			elif self.FUNCTION == 'tanh':
@@ -1007,21 +1099,29 @@ class CNN():
 			elif self.FUNCTION == 'swish': # TODO: Define "Swish function" derivative
 				dA_dZ = None
 			elif self.FUNCTION == 'leaky relu':
-				input_diag = np.diag(self.input.flatten())
-				input_diag[input_diag > 0] = 1
-				input_diag[input_diag < 0] = self.alpha
-				dA_dZ = input_diag
+				ix,iy = np.diag_indices_from(dA_dZ[0,:,:])
+				dA_dZ[:,iy,ix] = ( (self.input > 0).astype(int) + ((self.input < 0).astype(int) * self.alpha ) ).T
+
+				# input_diag = np.diag(self.input.flatten())
+				# input_diag[input_diag > 0] = 1
+				# input_diag[input_diag < 0] = self.alpha
+				# dA_dZ = input_diag
 			elif self.FUNCTION == 'parametric relu': # TODO: Define "Parametric ReLu" derivative
 				dA_dZ = None
 			
-			assert dA_dZ is not None, f'ERROR:: No derivative defined for chosen activation function "{self.FUNCTION}"'
-			
-			print('Layer: ', self.LAYER_TYPE)
-			print('Local gradient shape:',dA_dZ.shape)
-			print('Cost gradient shape:',dC_dA.shape)
-			# dC_dZ = np.sum( np.multiply( dA_dZ , dC_dA ), axis=1, keepdims=True)	# Element-wise multiplication. Sum in case square matrix.
-			dC_dZ = np.dot(dA_dZ,dC_dA)
+			assert dA_dZ is not None, f'No derivative defined for chosen activation function "{self.FUNCTION}"'
+			assert dA_dZ.shape[1:] == (self.output.shape[0],self.output.shape[0]), 'dA/dZ is expected to be a square matrix (for each example in batch) containing gradient between each activation node and each input node.'
+			# print('Layer: ', self.LAYER_TYPE)
+			# print('Local gradient shape:',dA_dZ.shape)
+			# print('Cost gradient shape:',dC_dA.shape)
 
+			dC_dAexpanded = dC_dA.T.reshape((dC_dA.T.shape[0],-1,1))
+			dC_dZexpanded = np.matmul(dA_dZ,dC_dAexpanded)
+			dC_dZ = dC_dZexpanded.reshape(dC_dA.shape[1],-1).T
+			
 			assert dC_dZ.shape == self.prev_layer.output.shape, f'Back propagating dC_dZ has shape: {dC_dZ.shape} when previous layer output has shape {self.prev_layer.output.shape}'
+			if self.FUNCTION is None:
+				assert np.array_equal(dC_dZ,dC_dA), 'For activation: None; dC/dZ is expected to be the same as dC/dA.'
+			
 			return dC_dZ
 

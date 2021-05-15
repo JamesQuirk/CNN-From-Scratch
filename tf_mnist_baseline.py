@@ -1,5 +1,5 @@
 '''
-TensorFlow baseline model -- ~95% test accuracy
+TensorFlow baseline model -- 86.7% test accuracy
 '''
 
 
@@ -11,7 +11,7 @@ train_images, train_labels, test_images, test_labels = mnist_dataloader.get_data
 model = tf.keras.Sequential()
 
 model.add(
-	tf.keras.layers.Flatten(input_shape=(1,28,28))
+	tf.keras.layers.Flatten(input_shape=(28,28))
 )
 model.add(
 	tf.keras.layers.Dense(128,activation='relu')
@@ -24,7 +24,7 @@ model.add(
 )
 
 model.compile(
-	optimizer='adam',
+	optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
 	loss=tf.keras.losses.CategoricalCrossentropy(),
 	metrics=['accuracy']
 )
@@ -32,7 +32,9 @@ model.compile(
 history = model.fit(
 	x=train_images,
 	y=train_labels,
-	epochs=3
+	epochs=3,
+	batch_size=5000,
+	shuffle=False
 )
 
 print(history.history)

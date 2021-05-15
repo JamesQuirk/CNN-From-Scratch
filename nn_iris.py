@@ -12,7 +12,7 @@ Y_onehot = cnn.CNN.one_hot_encode(Y.reshape((-1,1)),num_cats=3)
 print(X.shape,Y_onehot.shape)
 # print(X,Y_onehot)
 
-model = cnn.CNN(optimiser_method='gd')
+model = cnn.CNN(optimiser_method='adam')
 
 model.add_layer(
 	cnn.CNN.FC_Layer(3,input_shape=(4,1),activation='relu',initiation_method='kaiming_normal')
@@ -25,7 +25,7 @@ model.prepare_model()
 input()
 # print(X[0:1],X[0:1].shape)
 # print(Y[0:1],Y[0:1].shape, max(Y[0:1].shape))
-model.train(X,Y_onehot,epochs=30,max_batch_size=150,cost_fn='cross_entropy',shuffle=True,learning_rate=0.1)
+model.train(X,Y_onehot,epochs=30,max_batch_size=64,cost_fn='cross_entropy',shuffle=True,learning_rate=0.1)
 print(model.history)
 # print(model.structure[-1].output)
 
