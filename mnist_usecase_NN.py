@@ -1,5 +1,5 @@
 """
-This configuration scored 88.2% train accuracy and 90.3% test accuracy
+Configuration NN-128-128-10 scored 88.2% train accuracy and 90.3% test accuracy
 
 
 """
@@ -18,7 +18,7 @@ print(train_images.shape,train_labels.shape)
 model = CNN(optimiser_method='adam')
 
 # model.add_layer(
-# 	CNN.Conv_Layer(filt_shape=(5,5),num_filters=5,stride=2,pad_type='include')
+# 	CNN.Conv_Layer(filt_shape=(5,5),num_filters=5,stride=2,pad_type='include',input_shape=(1,28,28))
 # )
 # model.add_layer(
 # 	CNN.Pool_Layer(filt_shape=(3,3),stride=1,pool_type='max',pad_type='include')
@@ -52,7 +52,7 @@ train_finish, training_duration = model.train(
 print(f'Test Accuracy: {model.evaluate(test_images,test_labels)*100:.2f}%')
 
 print(f'Training duration: {training_duration}')
-save_name = f'nn_model_adam_tf_comparitor_{train_finish.strftime("%H-%M-%S")}.pkl'
+save_name = f'models/nn_model_adam_tf_comparitor_vectorised_{train_finish.strftime("%H-%M-%S")}.pkl'
 print(f'Model saved to: {save_name}')
 model.save_model(save_name)
 

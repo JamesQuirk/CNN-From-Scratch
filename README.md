@@ -1,6 +1,6 @@
 # CNN From Scratch
 
-This 'CNN From Scratch' is a simple CNN framework that has been coded using only numpy for matrix mathematics. This project was done to explore, in detail how Convolutional Neural Networks work.
+This 'CNN From Scratch' is a simple CNN framework that has been coded using only NumPy for matrix mathematics. This project was done to explore, in detail, how Convolutional Neural Networks work.
 
 ## Diagram
 
@@ -30,3 +30,6 @@ The diagram below shows an example forwards flow of a CNN.
 - [Medium - Backpropagation for Convolution with Strides [> 1, w.r.t. inputs]](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-8137e4fc2710)
 
 - [Medium - Backpropagation for Convolution with Strides [> 1, w.r.t. filters]](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-fb2f2efc4faa)
+
+- [On Vectorization of Deep Convolutional Neural Networks for Vision Tasks](http://lxu.me/mypapers/vcnn_aaai15.pdf)
+

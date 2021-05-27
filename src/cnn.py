@@ -14,6 +14,8 @@ import pickle
 from datetime import datetime as dt
 import sys
 
+from numpy.core.numeric import full
+
 # CLASS
 class CNN():
 	"""
@@ -73,6 +75,10 @@ class CNN():
 	def prepare_model(self):
 		""" Called once final layer is added, each layer can now iniate its weights and biases. """
 		print('Preparing model...')
+		self.details = {
+			'param_counts': [],
+			'output_shapes': []
+		}
 		if self.layer_counts['total'] > 1:
 			for index in range(self.layer_counts['total']):
 				curr_layer = self.structure[index]
@@ -89,12 +95,16 @@ class CNN():
 
 				print(f'Preparing Layer:: Type = {curr_layer.LAYER_TYPE} | Structure index = {curr_layer.MODEL_STRUCTURE_INDEX}')
 				curr_layer.prepare_layer()
+				print('--> Num params:',curr_layer.NUM_PARAMS)
 				print('--> Expected output shape:',curr_layer.OUTPUT_SHAPE)
 				if curr_layer.MODEL_STRUCTURE_INDEX == 0:
 					# First layer; set model input shape.
 					self.INPUT_SHAPE = curr_layer.INPUT_SHAPE
+				self.details['param_counts'].append(curr_layer.NUM_PARAMS)
+				self.details['output_shapes'].append(curr_layer.OUTPUT_SHAPE)
 
 		self.is_prepared = True
+		print(self.details)
 		print(f'Model Prepared: {self.is_prepared}')
 
 	@staticmethod
@@ -338,7 +348,7 @@ class CNN():
 			np.random.seed(seed)
 
 		if method is None:
-			array = np.random.randn(fan_out,fan_in) * 0.01
+			array = np.random.randn(*shape) * 0.01
 		elif method == 'kaiming_normal':
 			# AKA "he normal" after Kaiming He.
 			array = np.random.normal(size=shape) * np.sqrt(2./fan_in)
@@ -359,14 +369,14 @@ class CNN():
 		else:
 			raise BaseException('ERROR: Unrecognised array initialisation method: ' + method)
 
-		print(f'Array init method: {method}, max: {array.max()}, min: {array.min()}, std: {array.std()}' )
-		print('Array:',array)
+		print(f'--> Array init method: {method}, max: {array.max()}, min: {array.min()}, std: {array.std()}' )
+		# print('Array:',array)
 		return array
 
 
 	class CNN_Layer:
 		'''
-		PARENT LAYER CLASS FOR ALL LAYER TYPES
+		ABSTRACT LAYER CLASS FOR ALL LAYER TYPES
 		'''
 		def __init__(self):
 			self.model = None
@@ -483,7 +493,7 @@ class CNN():
 
 
 	class Conv_Layer(CNN_Layer):
-		def __init__(self,filt_shape: tuple or int,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None,input_shape=None):
+		def __init__(self,filt_shape: tuple or int,num_filters: int=5,stride: int=1,padding: int=0,pad_type: str=None,random_seed=42,initiation_method=None,input_shape=None,vectorised=True,track_history=True):
 			""" 
 			- filt_shape (int/tuple): Number of rows and columns of each filter. INT if rows == cols. TUPLE if rows != cols.
 			- num_filters (int): Number of filters to be used.
@@ -494,6 +504,7 @@ class CNN():
 			- initiation_method (str): This is the method used to initiate the weights and biases. Options: "kaiming", "xavier" or None. Default is none - this simply takes random numbers from standard normal distribution with no scaling.
 			- input_shape (tuple): The input shape of single example (observation).
 			"""
+			assert num_filters > 0, 'Cannot use less than 1 filter in Conv Layer.'
 			super().__init__()
 
 			self.LAYER_TYPE = 'CONV'
@@ -512,6 +523,8 @@ class CNN():
 			if input_shape is not None:
 				assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
 			self.INPUT_SHAPE = input_shape
+			self.VECTORISED = vectorised
+			self.TRACK_HISTORY = track_history
 
 		def prepare_layer(self):
 			if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
@@ -532,27 +545,21 @@ class CNN():
 			self.filters = CNN.array_init(shape=(self.NUM_FILTERS,self.INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)
 			self.bias = np.zeros(shape=(self.NUM_FILTERS,1))
 
+			self.NUM_PARAMS = self.filters.size + self.bias.size
+
 			# Need to account for padding.
 			if self.PAD_TYPE != None:
 				if self.PAD_TYPE == 'same':
-					nopad_out_cols = math.ceil(float(NUM_INPUT_COLS) / float(self.STRIDE))
-					pad_cols_needed = max((nopad_out_cols - 1) * self.STRIDE + self.FILT_SHAPE[1] - NUM_INPUT_COLS, 0)
-					nopad_out_rows = math.ceil(float(NUM_INPUT_ROWS) / float(self.STRIDE))
-					pad_rows_needed = max((nopad_out_rows - 1) * self.STRIDE + self.FILT_SHAPE[0] - NUM_INPUT_ROWS, 0)
+					pad_cols_needed = max((NUM_INPUT_COLS - 1) * self.STRIDE + self.FILT_SHAPE[1] - NUM_INPUT_COLS, 0)
+					pad_rows_needed = max((NUM_INPUT_ROWS - 1) * self.STRIDE + self.FILT_SHAPE[0] - NUM_INPUT_ROWS, 0)
 				elif self.PAD_TYPE == 'valid':
 					# TensoFlow definition of this is "no padding". The input is just processed as-is.
 					pad_rows_needed = pad_cols_needed = 0
 				elif self.PAD_TYPE == 'include':
 					# Here we will implement the padding method to avoid input data being excluded/ missed by the convolution.
 					# - This happens when, (I_dim - F_dim) % stride != 0
-					if (NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE != 0:
-						pad_rows_needed = self.FILT_SHAPE[0] - ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
-					else:
-						pad_rows_needed = 0
-					if (NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE != 0:
-						pad_cols_needed = self.FILT_SHAPE[1] - ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
-					else:
-						pad_cols_needed = 0
+					pad_rows_needed = ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
+					pad_cols_needed = ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
 
 				self.COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
 				self.COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
@@ -565,20 +572,16 @@ class CNN():
 			row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
 			self.OUTPUT_SHAPE = (self.NUM_FILTERS,row_out,col_out)
+			
 			# self.output = np.zeros(shape=(self.NUM_FILTERS,row_out,col_out))	# Output initiated.
 			if self.PAD_TYPE == 'same':
-				assert self.OUTPUT_SHAPE[-2:] == self.INPUT_SHAPE[-2:]	# Channels may differ.
+				assert self.OUTPUT_SHAPE[-2:] == self.INPUT_SHAPE[-2:], f'"SAME" padding chosen however last two dimensions of input and output shapes do not match; {self.INPUT_SHAPE} and {self.OUTPUT_SHAPE} respectively.'	# Channels may differ.
 
 			if self.model.OPTIMISER_METHOD == 'adam': self._initiate_adam_params()
 
 		def _forwards(self,_input):
-			# self.output[:] = 0 # Output must be re-initiated before each run
-			# if _input.ndim == 3:
-			# 	self.input = _input
-			# elif _input.ndim == 2:
-			# 	self.input = np.array( [ _input ] )	# NOTE: 'fakes' number of channels to be 1.
 			assert _input.ndim == 4 and _input.shape[1:] == self.INPUT_SHAPE, f'Input shape, {_input.shape[1:]}, expected to be, {self.INPUT_SHAPE} for each example (observation).'
-
+			self.input = _input
 			batch_size = _input.shape[0]
 
 			# Apply the padding to the input.
@@ -586,78 +589,70 @@ class CNN():
 
 			self.output = np.zeros(shape=(batch_size,*self.OUTPUT_SHAPE))
 
-			# proc_rows, proc_cols = self.padded_input.shape[-2:]
-			for i in range(batch_size):
-				for filt_index in range(self.NUM_FILTERS):
-					filt = self.filters[filt_index]
-					
-					filt_channels, filt_rows, filt_cols = filt.shape
+			if self.VECTORISED:
+				self.output = CNN.Conv_Layer.convolve_vectorised(self.padded_input,self.filters,self.STRIDE)
+			else:
+				for i in range(batch_size):
+					for filt_index in range(self.NUM_FILTERS):
+						filt = self.filters[filt_index]
+						filt_channels, _, _ = filt.shape
 
-					for channel_index in range(filt_channels):
-						self.output[i,filt_index] += CNN.Conv_Layer.convolve( self.padded_input[i,channel_index], filt[channel_index], self.STRIDE )
-					
-					self.output[i,filt_index] += self.bias[filt_index]
+						for channel_index in range(filt_channels):
+							self.output[i,filt_index] += CNN.Conv_Layer.convolve( self.padded_input[i,channel_index], filt[channel_index], self.STRIDE )
+						
+						self.output[i,filt_index] += self.bias[filt_index]
 
-
-			self._track_metrics(output=self.output)
-			return self.output	# NOTE: Output is 3D array of shape: ( NUM_FILTS, NUM_ROWS, NUM_COLS )
+			if self.TRACK_HISTORY: self._track_metrics(output=self.output)
+			return self.output	# NOTE: Output is 4D array of shape: ( BATCH_SIZE, NUM_FILTS, NUM_ROWS, NUM_COLS )
 
 		def _backwards(self,cost_gradient):	
-			assert cost_gradient.shape == self.output.shape, f'cost_gradient shape [{cost_gradient.shape}] does not match layer output shape [{self.output.shape}].'
-			self._track_metrics(cost_gradient=cost_gradient)
-
+			assert cost_gradient.shape == self.output.shape, f'cost_gradient shape {cost_gradient.shape} does not match layer output shape {self.output.shape}.'
+			if self.TRACK_HISTORY: self._track_metrics(cost_gradient=cost_gradient)
 			_,_, c_rows, c_cols = cost_gradient.shape
 			dilation_idx_row = np.arange(c_rows-1) + 1	# Intiatial indices for insertion of zeros
 			dilation_idx_col = np.arange(c_cols-1) + 1	# Intiatial indices for insertion of zeros
-			for n in range(1,self.STRIDE):
-				cost_gradient_dilated = np.insert(
-					np.insert( cost_gradient, dilation_idx_row * n, 0, axis=2 ),
-					dilation_idx_col * n, 0, axis=3)	# the n multiplier is to increment the indices in the non-uniform manner required.
+			if self.STRIDE == 1:
+				cost_gradient_dilated = cost_gradient.copy()
+			else:
+				cost_gradient_dilated = cost_gradient.copy()
+				for n in range(1,self.STRIDE):	# the n multiplier is to increment the indices in the non-uniform manner required.
+					cost_gradient_dilated = np.insert(
+						np.insert( cost_gradient_dilated, dilation_idx_row * n, 0, axis=2 ),
+						dilation_idx_col * n, 0, axis=3)
 			# print(f'cost_gradient shape: {cost_gradient.shape} | cost_gradient_dilated shape: {cost_gradient_dilated.shape}')
-			# assert cost_gradient_dilated.shape == self.input.shape, f'Dilated cost gradient shape, {cost_gradient_dilated.shape}, does not match layer input shape, {self.input.shape}.'
 
-			batch_size, channels, height, width = self.padded_input.shape
+			batch_size, channels, _, _ = self.padded_input.shape
 
 			# Account for filter not shifting over input an integer number of times with given stride.
 			pxls_excl_x = (self.padded_input.shape[3] - self.FILT_SHAPE[1]) % self.STRIDE	# pixels excluded in x direction (cols)
 			pxls_excl_y = (self.padded_input.shape[2] - self.FILT_SHAPE[0]) % self.STRIDE	# pixels excluded in y direction (rows)
+			# print('PIXELS EXCLUDED:',pxls_excl_x,pxls_excl_y)
 
-			# dCdF = []	# initiate as list then convert to np.array
-			# dCdX_pad_excl = []
-			dCdF = np.zeros(shape=self.filters.shape)
-			dCdX_pad = np.zeros(shape=self.padded_input.shape)
 			# Find cost gradient wrt previous output and filters.
 			rotated_filters = np.rot90( self.filters, k=2, axes=(1,2) )	# rotate 2x90 degs, rotating in direction of rows to columns.
-			for i in range(batch_size):
-				for filt_index in range(self.NUM_FILTERS):
-					# filt_1_container = []
-					# filt_2_container = []
-					for channel_index in range(channels):
-						# dCdF
-						# filt_1_container.append( CNN.Conv_Layer.convolve( self.padded_input[channel_index], cost_gradient_dilated[r_filt_ind], stride=1 ) )
-						dCdF[filt_index, channel_index] += CNN.Conv_Layer.convolve( self.padded_input[i,channel_index], cost_gradient_dilated[i,filt_index], stride=1 )
-						# dCdX
-						# filt_2_container.append( CNN.Conv_Layer.convolve( cost_gradient_dilated[r_filt_ind], rotated_filters[r_filt_ind][channel_index], stride=1, full_convolve=True ) )
-						dCdX_pad[i,channel_index, : dCdX_pad.shape[1] - pxls_excl_y, : dCdX_pad.shape[2] - pxls_excl_x] += CNN.Conv_Layer.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
-					# dCdF.append(filt_1_container)
-					# dCdX_pad_excl.append(filt_2_container)
-			# dCdF = np.array( dCdF )
-			# dCdX_pad_excl = np.array( dCdX_pad_excl ).sum(axis=0)	# NOTE: This is the cost gradient w.r.t. the padded input and potentially excluding pixels.
-			
-			dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
-			assert dCdF.shape == self.filters.shape, f'dCdF shape [{dCdF.shape}] does not match filters shape [{self.filters.shape}].'
+			dCdX_pad = np.zeros(shape=self.padded_input.shape)
+			if self.VECTORISED:
+				dCdF = np.transpose(CNN.Conv_Layer.convolve_vectorised(np.transpose(self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],axes=(1,0,2,3)),np.transpose(cost_gradient_dilated,axes=(1,0,2,3)),stride=1),axes=(1,0,2,3))
+				dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = CNN.Conv_Layer.convolve_vectorised(cost_gradient_dilated,np.transpose(rotated_filters,axes=(1,0,2,3)),stride=1,full_convolve=True)
+			else:
+				dCdF = np.zeros(shape=self.filters.shape)
+				for i in range(batch_size):
+					for filt_index in range(self.NUM_FILTERS):
+						for channel_index in range(channels):
+							dCdF[filt_index, channel_index] += CNN.Conv_Layer.convolve( self.padded_input[i,channel_index, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x], cost_gradient_dilated[i,filt_index], stride=1 )
+
+							dCdX_pad[i,channel_index, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] += CNN.Conv_Layer.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
+				
+			# dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
+			assert dCdF.shape == self.filters.shape, f'dCdF shape {dCdF.shape} does not match filters shape {self.filters.shape}.'
 			
 			# ADJUST THE FILTERS
-			# self.filters = self.filters - ( self.model.LEARNING_RATE * dCdF	)
 			self.filters = self.filters - self._update_factor(dCdF,'filter')
 
 			# ADJUST THE BIAS
-			assert dCdB.shape == self.bias.shape, f'dCdB shape [{dCdB.shape}] does not match bias shape [{self.bias.shape}].'
-			dCdB = 1 * cost_gradient.sum(axis=(1,2)).reshape(self.bias.shape)
+			dCdB = 1 * cost_gradient.sum(axis=(0,2,3)).reshape(self.bias.shape)
+			assert dCdB.shape == self.bias.shape, f'dCdB shape {dCdB.shape} does not match bias shape {self.bias.shape}.'
 			self.bias = self.bias - self._update_factor(dCdB,'bias')	# NOTE: Adjustments done in opposite direction to cost_gradient
-
-			# dCdX_pad = np.zeros(shape=self.padded_input.shape)
-			# dCdX_pad[:,: dCdX_pad.shape[1] - pxls_excl_y, : dCdX_pad.shape[2] - pxls_excl_x] = dCdX_pad_excl	# pixels excluded in forwards pass will now appear with cost_gradient = 0.
 
 			# Remove padding that was added to the input array.
 			dCdX = dCdX_pad[ :, : , self.ROW_UP_PAD : dCdX_pad.shape[-2] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dCdX_pad.shape[-1] - self.COL_RIGHT_PAD ]
@@ -675,7 +670,6 @@ class CNN():
 				vertical_pad = B.shape[0] - 1
 				horizontal_pad = B.shape[1] - 1
 				A = np.pad(A,[(vertical_pad,vertical_pad),(horizontal_pad,horizontal_pad)],'constant')
-
 			arows, acols = A.shape
 			brows, bcols = B.shape
 
@@ -698,9 +692,44 @@ class CNN():
 
 			return output
 
+		@staticmethod
+		def convolve_vectorised(X,K, stride, full_convolve=False):
+			"""
+			X: 4D array of shape: (batch_size,channels,rows,cols)
+			K: 4D array of shape: (num_filters,X_channels,rows,cols)
+
+			Speed of this function is inversely proportional to [X_rows - K_rows] * [X_cols - K_cols].
+			- Therefore, the larger the difference between size of X compared with K, the longer the function takes to run - this is due to the nested loop.
+			"""
+			assert X.ndim == 4 and K.ndim == 4, 'X and K should be 4D arrays.'
+			assert X.shape[1] == K.shape[1], f'Both X and K should have the same number of channels. X has {X.shape[1]} and K has {K.shape[1]}.'
+			X = X.copy()
+			K = K.copy()
+			
+			if full_convolve:
+				vertical_pad = K.shape[2] - 1
+				horizontal_pad = K.shape[3] - 1
+				X = np.pad(X,[(0,0),(0,0),(vertical_pad,vertical_pad),(horizontal_pad,horizontal_pad)],'constant',constant_values=0)
+
+			# Flatten last 2 dimensions of K so that it becomes a 3D array with shape (num filts, K_rows * K_cols * X channels)
+			Kflat = np.transpose(K,axes=(0,1,3,2)).reshape((K.shape[0],np.prod(K.shape[1:])))
+
+			# Extract each slice of X for the conv operation and place into columns of Xsliced
+			fmap_rows = int((X.shape[2] - K.shape[2]) / stride) + 1
+			fmap_cols = int((X.shape[3] - K.shape[3]) / stride) + 1
+			Xsliced = np.zeros((X.shape[0],np.prod(K.shape[1:]),fmap_rows*fmap_cols))
+			col_index = 0
+			for vstart in range(0,X.shape[2] - K.shape[2] + 1,stride):
+				for hstart in range(0,X.shape[3] - K.shape[3] + 1,stride):	# NOTE: This double for loop can become slow when X inner shape is significantly greater than K inner shape (rows,cols)
+					Xsliced[:,:,col_index] = np.transpose(X[:,:,vstart:vstart+K.shape[2],hstart:hstart+K.shape[3]],axes=(0,1,3,2)).reshape((X.shape[0],np.prod(K.shape[1:])))
+					col_index += 1
+			Fmap_flat = np.matmul(Kflat, Xsliced)	# (batch size, num filts, fmap_rows * fmap_cols)
+			# Transform Fmap_flat to (batch size, num filts, fmap_rows, fmap_cols)
+			return Fmap_flat.reshape((X.shape[0],K.shape[0], fmap_rows,fmap_cols))
+			
 	
 	class Pool_Layer(CNN_Layer):
-		def __init__(self,filt_shape: tuple or int,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None,input_shape=None):
+		def __init__(self,filt_shape: tuple or int,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None,input_shape=None,vectorised=True,track_history=True):
 			'''
 			- filt_shape (int/tuple): Number of rows and columns of each filter. INT if rows == cols. TUPLE if rows != cols.
 			- stride (int): Size of steps to take when shifting the filter. (Currently stride_x = stride_y).
@@ -726,6 +755,10 @@ class CNN():
 			if input_shape is not None:
 				assert len(input_shape) == 3, 'input_shape must be of length 3: (num_channels, num_rows, num_columns)'
 			self.INPUT_SHAPE = input_shape
+			self.VECTORISED = vectorised
+			self.TRACK_HISTORY = track_history
+
+			self.NUM_PARAMS = 0
 
 		def prepare_layer(self):
 			""" This needs to be done after the input has been identified - currently happens when train() is called. """
@@ -781,44 +814,53 @@ class CNN():
 				assert self.OUTPUT_SHAPE == self.INPUT_SHAPE	# Channels may differ.
 
 		def _forwards(self,_input):
-			# if _input.ndim == 3:
-			# 	self.input = _input
-			# elif _input.ndim == 2:
-			# 	self.input = np.array( [ _input ] )	# NOTE: 'fakes' number of channels to be 1.
-
 			assert _input.ndim == 4 and _input.shape[1:] == self.INPUT_SHAPE, f'Input shape, {_input.shape[1:]}, expected to be, {self.INPUT_SHAPE} for each example (observation).'
+			self.input = _input
 
 			# Apply the padding to the input.
 			self.padded_input = np.pad(self.input,[(0,0),(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant',constant_values=(0,0))
 
-			self.output = np.zeros(shape=(batch_size,*self.OUTPUT_SHAPE))
+			if self.VECTORISED:
+				self.Xsliced = np.zeros((self.padded_input.shape[0],self.padded_input.shape[1],np.prod(self.FILT_SHAPE),np.prod(self.OUTPUT_SHAPE[-2:])))
+				col_index = 0
+				for vstart in range(0,self.padded_input.shape[-2] - self.FILT_SHAPE[0] + 1, self.STRIDE):
+					for hstart in range(0, self.padded_input.shape[-1] - self.FILT_SHAPE[1] + 1, self.STRIDE):
+						self.Xsliced[:,:,:,col_index] = np.transpose(self.padded_input[:,:,vstart:vstart+self.FILT_SHAPE[0],hstart:hstart+self.FILT_SHAPE[1]],axes=(0,1,3,2)).reshape((*self.padded_input.shape[:2],np.prod(self.FILT_SHAPE)))
+						col_index += 1
+				if self.POOL_TYPE == 'max':
+					X_flat_pooled = np.max(self.Xsliced, axis=2)
+				elif self.POOL_TYPE == 'mean':
+					X_flat_pooled = np.mean(self.Xsliced, axis=2)
+				elif self.POOL_TYPE == 'min':
+					X_flat_pooled = np.min(self.Xsliced,axis=2)
+				self.output =  X_flat_pooled.reshape((self.padded_input.shape[0],*self.OUTPUT_SHAPE))
+			else:
+				self.output = np.zeros(shape=(self.input.shape[0],*self.OUTPUT_SHAPE))
+				batch_size, channels, proc_rows, proc_cols = self.padded_input.shape
+				for i in range(batch_size):
+					# Shift 'Filter Window' over the image and perform the downsampling
+					curr_y = out_y = 0
+					while curr_y <= proc_rows - self.FILT_SHAPE[0]:
+						curr_x = out_x = 0
+						while curr_x <= proc_cols - self.FILT_SHAPE[1]:
+							for channel_index in range(channels):
+								if self.POOL_TYPE == 'max':
+									sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+									self.output[i,channel_index, out_y, out_x] = np.max( sub_arr )
+								elif self.POOL_TYPE == 'min':
+									sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+									self.output[i,channel_index, out_y, out_x] = np.min( sub_arr )
+								elif self.POOL_TYPE == 'mean':
+									sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+									self.output[i,channel_index, out_y, out_x] = np.mean( sub_arr )
 
-			batch_size, channels, proc_rows, proc_cols = self.padded_input.shape
-
-			for i in range(batch_size):
-				# Shift 'Filter Window' over the image and perform the downsampling
-				curr_y = out_y = 0
-				while curr_y <= proc_rows - self.FILT_SHAPE[0]:
-					curr_x = out_x = 0
-					while curr_x <= proc_cols - self.FILT_SHAPE[1]:
-						for channel_index in range(channels):
-							if self.POOL_TYPE == 'max':
-								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
-								self.output[i,channel_index, out_y, out_x] = np.max( sub_arr )
-							elif self.POOL_TYPE == 'min':
-								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
-								self.output[i,channel_index, out_y, out_x] = np.min( sub_arr )
-							elif self.POOL_TYPE == 'mean':
-								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
-								self.output[i,channel_index, out_y, out_x] = np.mean( sub_arr )
-
-						curr_x += self.STRIDE
-						out_x += 1
-					curr_y += self.STRIDE
-					out_y += 1
+							curr_x += self.STRIDE
+							out_x += 1
+						curr_y += self.STRIDE
+						out_y += 1
 
 			assert len(self.output.shape) == 4 and self.output.shape[1:] == self.OUTPUT_SHAPE, f'Output shape, {self.output.shape[1:]}, not as expected, {self.OUTPUT_SHAPE}'
-			self._track_metrics(output=self.output)
+			if self.TRACK_HISTORY: self._track_metrics(output=self.output)
 			return self.output
 
 		def _backwards(self,cost_gradient):
@@ -837,44 +879,57 @@ class CNN():
 			- The responsibility will be split between the nodes; weighted by the proportion of each value to the total for the region.
 			'''
 			assert cost_gradient.shape == self.output.shape
-			self._track_metrics(cost_gradient=cost_gradient)
+			if self.TRACK_HISTORY: self._track_metrics(cost_gradient=cost_gradient)
 			# Initiate to input shape.
 			dC_dIpad = np.zeros_like(self.padded_input)
 
 			batch_size, channels, padded_rows, padded_cols = dC_dIpad.shape
 
-			# Step over the array similarly to the forwards pass and compute the expanded cost gradients.
-			for i in range(batch_size):
-				curr_y = cost_y = 0
-				while curr_y <= padded_rows - self.FILT_SHAPE[0]:
-					curr_x = cost_x = 0
-					while curr_x <= padded_cols - self.FILT_SHAPE[1]:
-						for channel_index in range(channels):
-							sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
-							cost_val = cost_gradient[i, channel_index,cost_y,cost_x]
-							if self.POOL_TYPE == 'max':
-								# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
-								max_node_y, max_node_x = np.array( np.unravel_index( np.argmax( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
+			if self.VECTORISED:
+				if self.POOL_TYPE == 'max':
+					distribution_arr = (np.max(self.Xsliced,axis=2,keepdims=True) == self.Xsliced).astype(int)
+				elif self.POOL_TYPE == 'min':
+					distribution_arr = (np.min(self.Xsliced,axis=2,keepdims=True) == self.Xsliced).astype(int)
+				elif self.POOL_TYPE == 'mean':
+					distribution_arr = np.ones_like(self.Xsliced)
+				cg_flat = cost_gradient.reshape((*self.Xsliced.shape[:2],1,self.Xsliced.shape[-1])) * distribution_arr
+				col_index = 0
+				for vstart in range(0,self.padded_input.shape[-2] - self.FILT_SHAPE[0] + 1, self.STRIDE):
+					for hstart in range(0, self.padded_input.shape[-1] - self.FILT_SHAPE[1] + 1, self.STRIDE):
+						dC_dIpad[:,:,vstart:vstart+self.FILT_SHAPE[0],hstart:hstart+self.FILT_SHAPE[1]] += np.transpose(cg_flat[:,:,:,col_index].reshape((*self.padded_input.shape[:2],*self.FILT_SHAPE[::-1])),axes=(0,1,3,2))
+						col_index += 1
+			else:
+				# Step over the array similarly to the forwards pass and compute the expanded cost gradients.
+				for i in range(batch_size):
+					curr_y = cost_y = 0
+					while curr_y <= padded_rows - self.FILT_SHAPE[0]:
+						curr_x = cost_x = 0
+						while curr_x <= padded_cols - self.FILT_SHAPE[1]:
+							for channel_index in range(channels):
+								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+								cost_val = cost_gradient[i, channel_index,cost_y,cost_x]
+								if self.POOL_TYPE == 'max':
+									# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
+									max_node_y, max_node_x = np.array( np.unravel_index( np.argmax( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
 
-								dC_dIpad[i, channel_index, max_node_y, max_node_x] += cost_val
-							elif self.POOL_TYPE == 'min':
-								# Set value of node that corresponds with the min value node of the input to the cost gradient value at (cost_y,cost_x)
-								min_node_y, min_node_x = np.array( np.unravel_index( np.argmin( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
+									dC_dIpad[i, channel_index, max_node_y, max_node_x] += cost_val
+								elif self.POOL_TYPE == 'min':
+									# Set value of node that corresponds with the min value node of the input to the cost gradient value at (cost_y,cost_x)
+									min_node_y, min_node_x = np.array( np.unravel_index( np.argmin( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
 
-								dC_dIpad[i, channel_index, min_node_y, min_node_x] += cost_val
-							elif self.POOL_TYPE == 'mean':
-								sub_arr_props = sub_arr / sub_arr.sum()
+									dC_dIpad[i, channel_index, min_node_y, min_node_x] += cost_val
+								elif self.POOL_TYPE == 'mean':
+									sub_arr_props = sub_arr / sub_arr.sum()
 
-								dC_dIpad[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += sub_arr_props * cost_val
+									dC_dIpad[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += sub_arr_props * cost_val
 
-						curr_x += self.STRIDE
-						cost_x += 1
-					curr_y += self.STRIDE
-					cost_y += 1
+							curr_x += self.STRIDE
+							cost_x += 1
+						curr_y += self.STRIDE
+						cost_y += 1
 
 			# Remove padding that was added to the input array.
 			dC_dI = dC_dIpad[ :, : , self.ROW_UP_PAD : dC_dIpad.shape[-2] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dC_dIpad.shape[-1] - self.COL_RIGHT_PAD ]
-
 			assert dC_dI.shape == self.input.shape, f'dC/dI shape [{dC_dI.shape}] does not match layer input shape [{self.input.shape}].'
 			return dC_dI
 
@@ -883,7 +938,7 @@ class CNN():
 		""" A psuedo layer that simply adjusts the data dimension as it passes between 2D Conv or Pool layers to the 1D FC layers. 
 		The output shapes of the Conv/ Pool layer is expected to be (m,c,h,w) which is converted to (n,m)."""
 
-		def __init__(self,input_shape):
+		def __init__(self,input_shape=None):
 			"""
 			input_shape (tuple): Shape of a single example eg (channels,height,width). Irrespective of batch size. 
 			"""
@@ -895,6 +950,8 @@ class CNN():
 			if input_shape is not None:
 				assert len(input_shape) == 3, f'ERROR: Expected input_shape to be a tuple of length 3; (channels, height, width).'
 			self.INPUT_SHAPE = input_shape
+
+			self.NUM_PARAMS = 0
 
 		def prepare_layer(self):
 			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
@@ -952,6 +1009,8 @@ class CNN():
 			self.weights = CNN.array_init(shape=(self.NUM_NODES,self.INPUT_SHAPE[0]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED)	# NOTE: this is the correct orientation for vertical node array.
 
 			self.bias = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: Recommended to initaite biases to zero.
+			
+			self.NUM_PARAMS = self.weights.size + self.bias.size
 			
 			self.OUTPUT_SHAPE = (self.NUM_NODES,1)
 			# self.output = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: This is a vertical array.
@@ -1016,6 +1075,8 @@ class CNN():
 
 			self.FUNCTION = None if function is None else function.lower()
 
+			self.NUM_PARAMS = 0
+
 		def prepare_layer(self):
 			if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 				assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
@@ -1074,7 +1135,7 @@ class CNN():
 			self._track_metrics(cost_gradient=dC_dA)
 			dA_dZ = np.zeros(shape=(self.output.shape[1],self.output.shape[0],self.prev_layer.output.shape[0]))	# TODO: Will need varifying for Conv Activation.
 			if self.FUNCTION is None: # a = z
-				dA_dZ = np.broadcast_to(np.diag(np.ones(dA_dZ.shape[-1])),( *dA_dZ.shape ))	# '*' unpacks the shape tuple.
+				dA_dZ = np.broadcast_to(np.diag(np.ones(dA_dZ.shape[-1])),dA_dZ.shape )
 			elif self.FUNCTION == 'relu':
 				# Insert layer input along dA_dZ diagonals - values > 0 -> 1; values <= 0 -> 0
 				ix,iy = np.diag_indices_from(dA_dZ[0,:,:])

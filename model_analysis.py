@@ -1,7 +1,7 @@
 from src.cnn import CNN
 from src.cnn_analyser import CNN_Analyser
 
-model = CNN.load_model('nn_model_sgd_19-46-01.pkl')
+model = CNN.load_model('models/cnn_model_adam_tf_comparitor_vectorised_14-33-36.pkl')
 CA = CNN_Analyser(model)
 
 # print(model.get_model_details())
@@ -9,7 +9,7 @@ CA = CNN_Analyser(model)
 # 	print(layer.output.mean())
 # print(model.structure[-1].output)
 CA.weight_distributions()
-# CA.display_filters(0)
+CA.display_filters(0)
 CA.plot_cost_gradients()
 CA.show_output_profiles()
 CA.plot_cost()
