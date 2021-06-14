@@ -14,8 +14,6 @@ import pickle
 from datetime import datetime as dt
 import sys
 
-from numpy.core.numeric import full
-
 # CLASS
 class CNN():
 	"""
@@ -508,7 +506,7 @@ class CNN():
 			super().__init__()
 
 			self.LAYER_TYPE = 'CONV'
-			self.IS_TRAINABLE = True
+			self.TRAINABLE = True
 			if type(filt_shape) == tuple:
 				assert len(filt_shape) == 2, 'Expected 2 dimensional tuple in form: (rows,cols)'
 				self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
@@ -741,7 +739,7 @@ class CNN():
 			super().__init__()
 
 			self.LAYER_TYPE = 'POOL'
-			self.IS_TRAINABLE = False
+			self.TRAINABLE = False
 			if type(filt_shape) == tuple:
 				assert len(filt_shape) == 2, 'Expected 2 dimensional tuple in form: (rows,cols)'
 				self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols
@@ -946,7 +944,7 @@ class CNN():
 			super().__init__()
 
 			self.LAYER_TYPE = 'FLATTEN'
-			self.IS_TRAINABLE = False
+			self.TRAINABLE = False
 			if input_shape is not None:
 				assert len(input_shape) == 3, f'ERROR: Expected input_shape to be a tuple of length 3; (channels, height, width).'
 			self.INPUT_SHAPE = input_shape
@@ -991,7 +989,7 @@ class CNN():
 			super().__init__()
 
 			self.LAYER_TYPE = 'FC'
-			self.IS_TRAINABLE = True
+			self.TRAINABLE = True
 			self.NUM_NODES = num_nodes
 			self.ACTIVATION = None if activation is None else activation.lower()
 			self.RANDOM_SEED = random_seed
@@ -1069,7 +1067,7 @@ class CNN():
 			super().__init__()
 
 			self.LAYER_TYPE = 'ACTIVATION'
-			self.IS_TRAINABLE = False
+			self.TRAINABLE = False
 			self.alpha = alpha
 			self.INPUT_SHAPE = input_shape
 

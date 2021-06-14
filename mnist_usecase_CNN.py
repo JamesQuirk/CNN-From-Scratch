@@ -4,8 +4,8 @@ Configuration Conv(5x5x5)-Pool(3x3)-FC(10) scored 74.5% train accuracy and 81.8%
 
 """
 
-
-from src.cnn import CNN
+import cnn
+from cnn import optimisers
 import mnist_dataloader
 # np.set_printoptions(linewidth=200)
 
@@ -15,22 +15,22 @@ train_images = train_images.reshape((train_images.shape[0],1,train_images.shape[
 test_images = test_images.reshape((test_images.shape[0],1,test_images.shape[1],test_images.shape[2]))
 print(train_images.shape,train_labels.shape)
 
-model = CNN(optimiser_method='adam')
+model = cnn.Model()
 
 model.add_layer(
-	CNN.Conv_Layer(filt_shape=(5,5),num_filters=15,stride=2,pad_type='valid',input_shape=(1,28,28),initiation_method='kaiming_normal')
+	cnn.layers.Conv2D(filt_shape=(5,5),num_filters=15,stride=2,pad_type='valid',input_shape=(1,28,28),initiation_method='kaiming_normal')
 )
 # model.add_layer(
 # 	CNN.Pool_Layer(filt_shape=(3,3),stride=2,pool_type='max',pad_type='include')
 # )
 model.add_layer(
-	CNN.Conv_Layer(filt_shape=(3,3),num_filters=25,stride=2,initiation_method='kaiming_normal')
+	cnn.layers.Conv2D(filt_shape=(3,3),num_filters=25,stride=2,initiation_method='kaiming_normal')
 )
 model.add_layer(
-	CNN.Pool_Layer(filt_shape=(2,2),stride=2,pool_type='max')
+	cnn.layers.Pool(filt_shape=(2,2),stride=2,pool_type='max')
 )
 model.add_layer(
-	CNN.Flatten_Layer()
+	cnn.layers.Flatten()
 )
 # model.add_layer(
 # 	CNN.FC_Layer(128,activation='relu',initiation_method='kaiming_normal')
@@ -39,9 +39,9 @@ model.add_layer(
 # 	CNN.FC_Layer(128,activation='relu',initiation_method='kaiming_normal')
 # )
 model.add_layer(
-	CNN.FC_Layer(10,activation='softmax',initiation_method='kaiming_normal')
+	cnn.layers.FC(10,activation='softmax',initiation_method='kaiming_normal')
 )
-model.prepare_model()
+model.prepare_model(optimiser=optimisers.Adam())
 
 input('Run training?')
 

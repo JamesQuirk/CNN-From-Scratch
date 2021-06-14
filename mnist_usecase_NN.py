@@ -5,7 +5,8 @@ Configuration NN-128-128-10 scored 88.2% train accuracy and 90.3% test accuracy
 """
 
 
-from src.cnn import CNN
+from cnn import optimisers
+import cnn
 import mnist_dataloader
 # np.set_printoptions(linewidth=200)
 
@@ -15,7 +16,7 @@ train_images = train_images.reshape((train_images.shape[0],1,train_images.shape[
 test_images = test_images.reshape((test_images.shape[0],1,test_images.shape[1],test_images.shape[2]))
 print(train_images.shape,train_labels.shape)
 
-model = CNN(optimiser_method='adam')
+model = cnn.Model()
 
 # model.add_layer(
 # 	CNN.Conv_Layer(filt_shape=(5,5),num_filters=5,stride=2,pad_type='include',input_shape=(1,28,28))
@@ -24,18 +25,18 @@ model = CNN(optimiser_method='adam')
 # 	CNN.Pool_Layer(filt_shape=(3,3),stride=1,pool_type='max',pad_type='include')
 # )
 model.add_layer(
-	CNN.Flatten_Layer(input_shape=(1,28,28))
+	cnn.layers.Flatten(input_shape=(1,28,28))
 )
 model.add_layer(
-	CNN.FC_Layer(128,activation='relu',initiation_method='kaiming_normal')
+	cnn.layers.FC(128,activation='relu',initiation_method='kaiming_normal')
 )
 model.add_layer(
-	CNN.FC_Layer(128,activation='relu',initiation_method='kaiming_normal')
+	cnn.layers.FC(128,activation='relu',initiation_method='kaiming_normal')
 )
 model.add_layer(
-	CNN.FC_Layer(10,activation='softmax',initiation_method='kaiming_normal')
+	cnn.layers.FC(10,activation='softmax',initiation_method='kaiming_normal')
 )
-model.prepare_model()
+model.prepare_model(optimiser=optimisers.Adam())
 
 input('Run training?')
 
