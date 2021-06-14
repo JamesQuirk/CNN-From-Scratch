@@ -29,6 +29,8 @@ model.compile(
 	metrics=['accuracy']
 )
 
+model.summary()
+input()
 history = model.fit(
 	x=train_images,
 	y=train_labels,
