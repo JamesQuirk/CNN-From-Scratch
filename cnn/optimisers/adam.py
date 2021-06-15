@@ -2,7 +2,10 @@
 import numpy as np
 
 class Adam:
-	""" Adaptive Movement Estimation Algorithm """
+	""" Adaptive Movement Estimation Algorithm 
+	- combination of 'Gradient Descent with Momentum' and 'RMSprop' """
+	
+	ALIAS = 'adam'
 
 	def __init__(self,learning_rate=0.001,beta1=0.9,beta2=0.999,epsilon=1e-8):
 		self.ALPHA = learning_rate
@@ -43,4 +46,4 @@ class Adam:
 
 		self.params[layer_index][param['name']]['m'] = moment1
 		self.params[layer_index][param['name']]['v'] = moment2
-		return param['values'] - self.ALPHA * ( moment1_hat / np.sqrt( moment2_hat + self.EPSILON ) )
+		return param['values'] - self.ALPHA * ( moment1_hat / (np.sqrt( moment2_hat ) + self.EPSILON) )

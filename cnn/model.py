@@ -62,12 +62,16 @@ class Model():
 
 		return details
 		
-	def prepare_model(self,optimiser=optimisers.GradientDescent()):
+	def prepare_model(self,optimiser='gd',learning_rate=None):
 		""" Called once final layer is added, each layer can now initiate its weights and biases. """
 		print('Preparing model...')
 
-		assert optimiser.__class__.__name__ in optimisers.optimisers, f'Invalid optimiser: {optimiser}'
-		self.OPTIMISER = optimiser
+		if type(optimiser) == str:
+			assert optimiser.lower() in optimisers.optimiser_names, f'Unrecognised optimiser name: {optimiser}; choose from: {optimisers.optimiser_names}'
+			self.OPTIMISER = optimisers.from_name(optimiser,learning_rate)
+		else:
+			assert optimiser.__class__.__name__ in optimisers.optimiser_names, f'Invalid optimiser: {optimiser}'
+			self.OPTIMISER = optimiser
 
 		self.details = {
 			'param_counts': [],
@@ -329,6 +333,7 @@ class Model():
 				print('-'*(np.sum(field_lengths) + len(field_names)))
 			print(info_str)
 		print('='*(np.sum(field_lengths) + len(field_names)))
+		print('Optimiser:',self.OPTIMISER.__class__.__name__)
 		print('Total params:',total_trainable + total_non_trainable)
 		print('Trainable params:',total_trainable)
 		print('Non-trainable params:',total_non_trainable)
