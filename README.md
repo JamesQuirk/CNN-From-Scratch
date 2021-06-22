@@ -1,12 +1,58 @@
 # CNN From Scratch
 
+> **Status**: Draft
+
 This 'CNN From Scratch' is a simple CNN framework that has been coded using only NumPy for matrix mathematics. This project was done to explore, in detail, how Convolutional Neural Networks work.
 
-## Diagram
+## Intro to CNNs
+
+A Convolutional Neural Networks (CNN) is a deep learning algorithm that combines a fully connected neural network with convolutional and pooling layers that results in a spacially more efficent (less parameters) algorithm, often with improved performance. CNNs were developed by the computer vision community and are often used with images - though they can, in theory, be used for other types of input.
+
+CNNs exhibite spacial-invariance - meaning they can often do much better than standard NNs when identifying features that are not confined to a specific region of the image.
 
 The diagram below shows an example forwards flow of a CNN.
 
 ![CNN Forwards](./imgs/CNN_Forwards.png)
+
+The architecture of a CNN is somewhat down to the developer and optimum choices can vary between use cases. However, they all start with some combination of 'Convolutional' and 'Pooling' layers and then end with a small number (usually) of fully connected layers.
+
+## Convolutional Layer
+
+In the convolutional layer, a number of filters (aka kernels/ masks) are systematically slid over the input image, from top left to bottom right. 
+
+> [Illustration of convolution process.]
+
+Each filter has the same number of channels as the input image and the layer output has equal numbers of channels as there are filters.
+
+
+## Pooling Layer
+
+
+## Fully Connected Layer
+
+
+## Cost
+
+
+## Optimisers
+
+
+## The Model Object
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## Useful References
