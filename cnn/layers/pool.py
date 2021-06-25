@@ -137,7 +137,7 @@ class Pool(Layer):
 		if self.TRACK_HISTORY: self._track_metrics(output=self.output)
 		return self.output
 
-	def _backwards(self,cost_gradient):
+	def _backwards(self,dCdO):
 		'''
 		Backprop in pooling layer:
 		- nothing to be updated as there are no weights in this layer.
@@ -152,8 +152,8 @@ class Pool(Layer):
 		If Pooling is MEAN:
 		- The responsibility will be split between the nodes; weighted by the proportion of each value to the total for the region.
 		'''
-		assert cost_gradient.shape == self.output.shape
-		if self.TRACK_HISTORY: self._track_metrics(cost_gradient=cost_gradient)
+		assert dCdO.shape == self.output.shape
+		if self.TRACK_HISTORY: self._track_metrics(cost_gradient=dCdO)
 		# Initiate to input shape.
 		dC_dIpad = np.zeros_like(self.padded_input)
 
@@ -166,7 +166,7 @@ class Pool(Layer):
 				distribution_arr = (np.min(self.Xsliced,axis=2,keepdims=True) == self.Xsliced).astype(int)
 			elif self.POOL_TYPE == 'mean':
 				distribution_arr = np.ones_like(self.Xsliced)
-			cg_flat = cost_gradient.reshape((*self.Xsliced.shape[:2],1,self.Xsliced.shape[-1])) * distribution_arr
+			cg_flat = dCdO.reshape((*self.Xsliced.shape[:2],1,self.Xsliced.shape[-1])) * distribution_arr
 			col_index = 0
 			for vstart in range(0,self.padded_input.shape[-2] - self.FILT_SHAPE[0] + 1, self.STRIDE):
 				for hstart in range(0, self.padded_input.shape[-1] - self.FILT_SHAPE[1] + 1, self.STRIDE):
@@ -181,7 +181,7 @@ class Pool(Layer):
 					while curr_x <= padded_cols - self.FILT_SHAPE[1]:
 						for channel_index in range(channels):
 							sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
-							cost_val = cost_gradient[i, channel_index,cost_y,cost_x]
+							cost_val = dCdO[i, channel_index,cost_y,cost_x]
 							if self.POOL_TYPE == 'max':
 								# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
 								max_node_y, max_node_x = np.array( np.unravel_index( np.argmax( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).

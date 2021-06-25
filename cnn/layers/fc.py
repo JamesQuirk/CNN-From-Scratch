@@ -64,35 +64,35 @@ class FC(Layer):
 		# print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 		return self.output
 
-	def _backwards(self, dC_dZ):
+	def _backwards(self, dCdZ):
 		"""
 		Take cost gradient dC/dZ (how the output of this layer affects the cost) and backpropogate
 
 		Z = W . I + B
 
 		"""
-		assert dC_dZ.shape == self.output.shape, f'dC/dZ shape, {dC_dZ.shape}, does not match Z shape, {self.output.shape}.'
-		self._track_metrics(cost_gradient=dC_dZ)
+		assert dCdZ.shape == self.output.shape, f'dC/dZ shape, {dCdZ.shape}, does not match Z shape, {self.output.shape}.'
+		self._track_metrics(cost_gradient=dCdZ)
 
-		dZ_dW = self.input.T	# Partial diff of weighted sum (Z) w.r.t. weights
-		dZ_dB = 1
-		dZ_dI = self.params['weights']['values'].T	# Partial diff of weighted sum w.r.t. input to layer.
+		dZdW = self.input.T	# Partial diff of weighted sum (Z) w.r.t. weights
+		dZdB = 1
+		dZdI = self.params['weights']['values'].T	# Partial diff of weighted sum w.r.t. input to layer.
 		
-		# dC_dW.shape === W.shape = (n(l),n(l-1)) | dZ_dW.shape = (1,n(l-1))
-		# dC_dW = np.multiply( dC_dZ , dZ_dW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
-		dC_dW = np.dot(dC_dZ,dZ_dW)
-		assert dC_dW.shape == self.params['weights']['values'].shape, f'dC/dW shape {dC_dW.shape} does not match W shape {self.params["weights"]["values"].shape}'
-		# self.weights = self.weights - ( self.model.LEARNING_RATE * dC_dW )	# NOTE: Adjustments done in opposite direction to dC_dZ
+		# dCdW.shape === W.shape = (n(l),n(l-1)) | dZdW.shape = (1,n(l-1))
+		# dCdW = np.multiply( dCdZ , dZdW )	# Element-wise multiplication. The local gradient needs transposing for the multiplication.
+		dCdW = np.dot(dCdZ,dZdW)
+		assert dCdW.shape == self.params['weights']['values'].shape, f'dC/dW shape {dCdW.shape} does not match W shape {self.params["weights"]["values"].shape}'
+		# self.weights = self.weights - ( self.model.LEARNING_RATE * dCdW )	# NOTE: Adjustments done in opposite direction to dCdZ
 		if self.params['weights']['trainable']:
-			self.params['weights']['values'] = self.model.OPTIMISER.update_param(self.params['weights'],dC_dW,self.MODEL_STRUCTURE_INDEX)
+			self.params['weights']['values'] = self.model.OPTIMISER.update_param(self.params['weights'],dCdW,self.MODEL_STRUCTURE_INDEX)
 
-		dC_dB = np.sum(dC_dZ * dZ_dB, axis=1,keepdims=True)	# Element-wise multiplication (dZ_dB turns out to be just 1)
+		dCdB = np.sum(dCdZ * dZdB, axis=1,keepdims=True)	# Element-wise multiplication (dZdB turns out to be just 1)
 
-		assert dC_dB.shape == self.params['bias']['values'].shape, f'dC/dB shape {dC_dB.shape} does not match B shape {self.params["bias"]["values"].shape}'
-		# self.bias = self.bias - ( self.model.LEARNING_RATE * dC_dB )	# NOTE: Adjustments done in opposite direction to dC_dZ
+		assert dCdB.shape == self.params['bias']['values'].shape, f'dC/dB shape {dCdB.shape} does not match B shape {self.params["bias"]["values"].shape}'
+		# self.bias = self.bias - ( self.model.LEARNING_RATE * dCdB )	# NOTE: Adjustments done in opposite direction to dCdZ
 		if self.params['bias']['trainable']:
-			self.params['bias']['values'] = self.model.OPTIMISER.update_param(self.params['bias'],dC_dB,self.MODEL_STRUCTURE_INDEX)
+			self.params['bias']['values'] = self.model.OPTIMISER.update_param(self.params['bias'],dCdB,self.MODEL_STRUCTURE_INDEX)
 
-		dC_dI = np.dot( dZ_dI , dC_dZ )
-		assert dC_dI.shape == self.input.shape, f'dC/dI shape {dC_dI.shape} does not match input shape {self.input.shape}.'
-		return dC_dI
+		dCdI = np.dot( dZdI , dCdZ )
+		assert dCdI.shape == self.input.shape, f'dC/dI shape {dCdI.shape} does not match input shape {self.input.shape}.'
+		return dCdI

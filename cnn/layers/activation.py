@@ -64,19 +64,19 @@ class Activation(Layer):
 		# print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 		return self.output
 
-	def _backwards(self,dC_dA):
+	def _backwards(self,dCdA):
 		"""Compute derivative of Activation w.r.t. Z
 		NOTE: CURRENTLY NOT SUPPORTED FOR CONV/POOL LAYERS.
 		"""
-		assert dC_dA.shape == self.output.shape, f'dC/dA shape, {dC_dA.shape}, not as expected, {self.output.shape}.'
-		self._track_metrics(cost_gradient=dC_dA)
-		dA_dZ = np.zeros(shape=(self.output.shape[1],self.output.shape[0],self.prev_layer.output.shape[0]))	# TODO: Will need varifying for Conv Activation.
+		assert dCdA.shape == self.output.shape, f'dC/dA shape, {dCdA.shape}, not as expected, {self.output.shape}.'
+		self._track_metrics(cost_gradient=dCdA)
+		dAdZ = np.zeros(shape=(self.output.shape[1],self.output.shape[0],self.prev_layer.output.shape[0]))	# TODO: Will need varifying for Conv Activation.
 		if self.FUNCTION is None: # a = z
-			dA_dZ = np.broadcast_to(np.diag(np.ones(dA_dZ.shape[-1])),dA_dZ.shape )
+			dAdZ = np.broadcast_to(np.diag(np.ones(dAdZ.shape[-1])),dAdZ.shape )
 		elif self.FUNCTION == 'relu':
-			# Insert layer input along dA_dZ diagonals - values > 0 -> 1; values <= 0 -> 0
-			ix,iy = np.diag_indices_from(dA_dZ[0,:,:])
-			dA_dZ[:,iy,ix] = (self.input.T > 0).astype(int)
+			# Insert layer input along dAdZ diagonals - values > 0 -> 1; values <= 0 -> 0
+			ix,iy = np.diag_indices_from(dAdZ[0,:,:])
+			dAdZ[:,iy,ix] = (self.input.T > 0).astype(int)
 		elif self.FUNCTION == 'softmax':
 			# Vectorised implementation from https://stackoverflow.com/questions/59286911/vectorized-softmax-gradient
 			# NOTE: Transpose is required to create the square matrices of each set of node values.
@@ -84,41 +84,41 @@ class Activation(Layer):
 			diag_matrices = outputT.reshape(outputT.shape[0],-1,1) * np.diag(np.ones(outputT.shape[1]))	# Diagonal Matrices
 			outer_product = np.matmul(outputT.reshape(outputT.shape[0],-1,1), outputT.reshape(outputT.shape[0],1,-1))	# Outer product
 			Jsm = diag_matrices - outer_product
-			dA_dZ = Jsm	# NOTE: Even though this equation uses softmax transpose at start, the output does not require transposing because the softmax derivative is symmetrical along diagonal.
+			dAdZ = Jsm	# NOTE: Even though this equation uses softmax transpose at start, the output does not require transposing because the softmax derivative is symmetrical along diagonal.
 
 		elif self.FUNCTION == 'sigmoid':
 			# sig (1 - sig) across diagonals
-			ix,iy = np.diag_indices_from(dA_dZ[0,:,:])
-			dA_dZ[:,iy,ix] = (self.output * (1 - self.output)).T	# Element-wise multiplication.
+			ix,iy = np.diag_indices_from(dAdZ[0,:,:])
+			dAdZ[:,iy,ix] = (self.output * (1 - self.output)).T	# Element-wise multiplication.
 		elif self.FUNCTION == 'step': # TODO: Define "step function" derivative
-			dA_dZ = None
+			dAdZ = None
 		elif self.FUNCTION == 'tanh':
-			dA_dZ = np.diag((1 - np.square( self.output )).flatten())
+			dAdZ = np.diag((1 - np.square( self.output )).flatten())
 		elif self.FUNCTION == 'swish': # TODO: Define "Swish function" derivative
-			dA_dZ = None
+			dAdZ = None
 		elif self.FUNCTION == 'leaky relu':
-			ix,iy = np.diag_indices_from(dA_dZ[0,:,:])
-			dA_dZ[:,iy,ix] = ( (self.input > 0).astype(int) + ((self.input < 0).astype(int) * self.alpha ) ).T
+			ix,iy = np.diag_indices_from(dAdZ[0,:,:])
+			dAdZ[:,iy,ix] = ( (self.input > 0).astype(int) + ((self.input < 0).astype(int) * self.alpha ) ).T
 
 			# input_diag = np.diag(self.input.flatten())
 			# input_diag[input_diag > 0] = 1
 			# input_diag[input_diag < 0] = self.alpha
-			# dA_dZ = input_diag
+			# dAdZ = input_diag
 		elif self.FUNCTION == 'parametric relu': # TODO: Define "Parametric ReLu" derivative
-			dA_dZ = None
+			dAdZ = None
 		
-		assert dA_dZ is not None, f'No derivative defined for chosen activation function "{self.FUNCTION}"'
-		assert dA_dZ.shape[1:] == (self.output.shape[0],self.output.shape[0]), 'dA/dZ is expected to be a square matrix (for each example in batch) containing gradient between each activation node and each input node.'
+		assert dAdZ is not None, f'No derivative defined for chosen activation function "{self.FUNCTION}"'
+		assert dAdZ.shape[1:] == (self.output.shape[0],self.output.shape[0]), 'dA/dZ is expected to be a square matrix (for each example in batch) containing gradient between each activation node and each input node.'
 		# print('Layer: ', self.LAYER_TYPE)
-		# print('Local gradient shape:',dA_dZ.shape)
-		# print('Cost gradient shape:',dC_dA.shape)
+		# print('Local gradient shape:',dAdZ.shape)
+		# print('Cost gradient shape:',dCdA.shape)
 
-		dC_dAexpanded = dC_dA.T.reshape((dC_dA.T.shape[0],-1,1))
-		dC_dZexpanded = np.matmul(dA_dZ,dC_dAexpanded)
-		dC_dZ = dC_dZexpanded.reshape(dC_dA.shape[1],-1).T
+		dCdA_expanded = dCdA.T.reshape((dCdA.T.shape[0],-1,1))
+		dCdZ_expanded = np.matmul(dAdZ,dCdA_expanded)
+		dCdZ = dCdZ_expanded.reshape(dCdA.shape[1],-1).T
 		
-		assert dC_dZ.shape == self.prev_layer.output.shape, f'Back propagating dC_dZ has shape: {dC_dZ.shape} when previous layer output has shape {self.prev_layer.output.shape}'
+		assert dCdZ.shape == self.prev_layer.output.shape, f'Back propagating dCdZ has shape: {dCdZ.shape} when previous layer output has shape {self.prev_layer.output.shape}'
 		if self.FUNCTION is None:
-			assert np.array_equal(dC_dZ,dC_dA), 'For activation: None; dC/dZ is expected to be the same as dC/dA.'
+			assert np.array_equal(dCdZ,dCdA), 'For activation: None; dC/dZ is expected to be the same as dC/dA.'
 		
-		return dC_dZ
+		return dCdZ

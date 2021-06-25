@@ -37,9 +37,9 @@ class Flatten(Layer):
 		self._track_metrics(output=self.output)
 		return self.output	# NOTE: 2D matrix, (number of nodes, number of examples in batch)
 
-	def _backwards(self,cost_gradient):
+	def _backwards(self,dCdO):
 		"""
-		cost_gradient expected to have shape (n,m) where n == channels * height * width
+		dCdO expected to have shape (n,m) where n == channels * height * width
 		"""
-		self._track_metrics(cost_gradient=cost_gradient)
-		return cost_gradient.reshape(self.input.T.shape).T	# Outputs shape (m,c,h,w)
+		self._track_metrics(cost_gradient=dCdO)
+		return dCdO.reshape(self.input.T.shape).T	# Outputs shape (m,c,h,w)

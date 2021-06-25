@@ -121,21 +121,21 @@ class Conv2D(Layer):
 		if self.TRACK_HISTORY: self._track_metrics(output=self.output)
 		return self.output	# NOTE: Output is 4D array of shape: ( BATCH_SIZE, NUM_FILTS, NUM_ROWS, NUM_COLS )
 
-	def _backwards(self,cost_gradient):	
-		assert cost_gradient.shape == self.output.shape, f'cost_gradient shape {cost_gradient.shape} does not match layer output shape {self.output.shape}.'
-		if self.TRACK_HISTORY: self._track_metrics(cost_gradient=cost_gradient)
-		_,_, c_rows, c_cols = cost_gradient.shape
+	def _backwards(self,dCdO):	
+		assert dCdO.shape == self.output.shape, f'dCdO shape {dCdO.shape} does not match layer output shape {self.output.shape}.'
+		if self.TRACK_HISTORY: self._track_metrics(cost_gradient=dCdO)
+		_,_, c_rows, c_cols = dCdO.shape
 		dilation_idx_row = np.arange(c_rows-1) + 1	# Intiatial indices for insertion of zeros
 		dilation_idx_col = np.arange(c_cols-1) + 1	# Intiatial indices for insertion of zeros
 		if self.STRIDE == 1:
-			cost_gradient_dilated = cost_gradient.copy()
+			dCdO_dilated = dCdO.copy()
 		else:
-			cost_gradient_dilated = cost_gradient.copy()
+			dCdO_dilated = dCdO.copy()
 			for n in range(1,self.STRIDE):	# the n multiplier is to increment the indices in the non-uniform manner required.
-				cost_gradient_dilated = np.insert(
-					np.insert( cost_gradient_dilated, dilation_idx_row * n, 0, axis=2 ),
+				dCdO_dilated = np.insert(
+					np.insert( dCdO_dilated, dilation_idx_row * n, 0, axis=2 ),
 					dilation_idx_col * n, 0, axis=3)
-		# print(f'cost_gradient shape: {cost_gradient.shape} | cost_gradient_dilated shape: {cost_gradient_dilated.shape}')
+		# print(f'dCdO shape: {dCdO.shape} | dCdO_dilated shape: {dCdO_dilated.shape}')
 
 		batch_size, channels, _, _ = self.padded_input.shape
 
@@ -148,16 +148,16 @@ class Conv2D(Layer):
 		rotated_filters = np.rot90( self.params['filters']['values'], k=2, axes=(1,2) )	# rotate 2x90 degs, rotating in direction of rows to columns.
 		dCdX_pad = np.zeros(shape=self.padded_input.shape)
 		if self.VECTORISED:
-			dCdF = np.transpose(Conv2D.convolve_vectorised(np.transpose(self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],axes=(1,0,2,3)),np.transpose(cost_gradient_dilated,axes=(1,0,2,3)),stride=1),axes=(1,0,2,3))
-			dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = Conv2D.convolve_vectorised(cost_gradient_dilated,np.transpose(rotated_filters,axes=(1,0,2,3)),stride=1,full_convolve=True)
+			dCdF = np.transpose(Conv2D.convolve_vectorised(np.transpose(self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],axes=(1,0,2,3)),np.transpose(dCdO_dilated,axes=(1,0,2,3)),stride=1),axes=(1,0,2,3))
+			dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = Conv2D.convolve_vectorised(dCdO_dilated,np.transpose(rotated_filters,axes=(1,0,2,3)),stride=1,full_convolve=True)
 		else:
 			dCdF = np.zeros(shape=self.params['filters']['values'].shape)
 			for i in range(batch_size):
 				for filt_index in range(self.NUM_FILTERS):
 					for channel_index in range(channels):
-						dCdF[filt_index, channel_index] += Conv2D.convolve( self.padded_input[i,channel_index, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x], cost_gradient_dilated[i,filt_index], stride=1 )
+						dCdF[filt_index, channel_index] += Conv2D.convolve( self.padded_input[i,channel_index, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x], dCdO_dilated[i,filt_index], stride=1 )
 
-						dCdX_pad[i,channel_index, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] += Conv2D.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
+						dCdX_pad[i,channel_index, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] += Conv2D.convolve( dCdO_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
 			
 		# dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
 		assert dCdF.shape == self.params['filters']['values'].shape, f'dCdF shape {dCdF.shape} does not match filters shape {self.params["filters"]["values"].shape}.'
@@ -167,7 +167,7 @@ class Conv2D(Layer):
 			self.params['filters']['values'] = self.model.OPTIMISER.update_param(self.params['filters'],dCdF,self.MODEL_STRUCTURE_INDEX)
 
 		# ADJUST THE BIAS
-		dCdB = 1 * cost_gradient.sum(axis=(0,2,3)).reshape(self.params['bias']['values'].shape)
+		dCdB = 1 * dCdO.sum(axis=(0,2,3)).reshape(self.params['bias']['values'].shape)
 		assert dCdB.shape == self.params['bias']['values'].shape, f'dCdB shape {dCdB.shape} does not match bias shape {self.params["bias"]["values"].shape}.'
 		if self.params['bias']['trainable']:
 			self.params['bias']['values'] = self.model.OPTIMISER.update_param(self.params['bias'],dCdB,self.MODEL_STRUCTURE_INDEX)
