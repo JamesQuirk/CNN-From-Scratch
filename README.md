@@ -11,10 +11,16 @@ This README doc will serve as a starting point for anyone who is looking to unde
 	- [Table of Contents](#table-of-contents)
 - [Intro to CNNs](#intro-to-cnns)
 - [Convolutional Layer](#convolutional-layer)
+	- [Forwards Propagation Implmentation](#forwards-propagation-implmentation)
+	- [Backwards Propagation Implementation](#backwards-propagation-implementation)
+		- [Dilated dC/dO](#dilated-dcdo)
+		- [Excluded pixels](#excluded-pixels)
 	- [Conv2D Layer Object](#conv2d-layer-object)
 		- [Hyper-parameters:](#hyper-parameters)
-		- [Back-propagation](#back-propagation)
 - [Pooling Layer](#pooling-layer)
+	- [Forwards Propagation Implmentation](#forwards-propagation-implmentation-1)
+	- [Backwards Propagation Implemtation](#backwards-propagation-implemtation)
+	- [Pool Layer Object](#pool-layer-object)
 - [Fully Connected Layer](#fully-connected-layer)
 - [Loss/ Cost](#loss-cost)
 - [Optimisers](#optimisers)
@@ -39,7 +45,9 @@ In the convolutional layer, a number of filters (aka kernels/ masks) are systema
 
 > [TODO: Illustration of convolution process.]
 
-This process can be implemented by the following function. Here 'A' is a single channel of the input image and 'B' is the corresponding channel of one of the filters. The 'stride' value represents the size of each step taken as the filter traverses over the input. *This function is implemented in the Conv2D layer in the cnn.layers subpackage.*
+## Forwards Propagation Implmentation
+
+The convolutional forwards propagation process described above can be implemented by the following function. Here 'A' is a single channel of the input image and 'B' is the corresponding channel of one of the filters. The 'stride' value represents the size of each step taken as the filter traverses over the input. *This function is implemented in the Conv2D layer in the cnn.layers subpackage.*
 
 <details>
 	<summary>Code for convolution...</summary>
@@ -78,6 +86,8 @@ def convolve(A, B, stride,full_convolve=False):
 ```
 
 </details>
+
+<br>
 
 The above described function, while intuitive based on theory, is not efficient and can quite adversely affect runtime speeds. To combat this, certain abstractions can be made which still result in the same outputs.
 
@@ -126,6 +136,90 @@ def convolve_vectorised(X,K, stride, full_convolve=False):
 
 </details>
 
+<br>
+
+## Backwards Propagation Implementation
+
+Here we take the cost gradient with respect to (w.r.t.) this layer output (dC/dO) and propagate it backwards through the layer to aquire the cost gradient w.r.t.: filters (dC/dF), biases (dC/dB) and the input to this layer (dC/dX).
+
+To calculate these cost gradients, the **dilated cost gradient** (w.r.t. layer output) and the number of **pixels exluded** in the forwards pass need to be obtained. 
+
+### Dilated dC/dO
+
+Dilating the cost gradient means inserting S - 1 zeros between each of the rows and columns ('S' being the stride size in the given dimension). This is illustrated very well in [this Medium blog from Mayank](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-fb2f2efc4faa):
+
+![Dilated Cost Gradient](imgs/cost_gradient_dilation.png)
+
+*Here, 'dL/dy' corresponds to the more generic cost gradient with respect to layer output (dC/dO in my notation).*
+
+This then yeilds the 'dC/dO_dilated' matrix which contains all the values from the original dC/dO matrix separated by some number of 0s.
+
+<details>
+<summary>Expand for code implmentation...</summary>
+
+If stride = 1 then dCdO_dilated is equal to dCdO; 1 - 1 = 0 rows/ cols of zeros inserted.
+
+Otherwise, iteratively insert 0s at the position of each data point, excluding postion (0,0). The code snippet below shows how this can be implmented (at the time of writing this I was unable to find a way to insert all the zeros in one go, hence the loop). The np.insert function inserts a value at the indices specified and thus shifts the value in the matrix at that point to the right or down.
+
+```python
+dilation_idx_row = np.arange(c_rows-1) + 1	# Intiatial indices for insertion of zeros
+dilation_idx_col = np.arange(c_cols-1) + 1	# Intiatial indices for insertion of zeros
+if self.STRIDE == 1:
+	dCdO_dilated = dCdO.copy()
+else:
+	dCdO_dilated = dCdO.copy()
+	for n in range(1,self.STRIDE):	# the n multiplier is to increment the indices in the manner required.
+		dCdO_dilated = np.insert(
+			np.insert( dCdO_dilated, dilation_idx_row * n, 0, axis=2 ),
+			dilation_idx_col * n, 0, axis=3)
+```
+
+E.g. if the stride on the forwards pass was 3 (S = 3), then the below transformation would be performed, resulting in 2 rows and cols of 0s inserted between each data point. Note, the indices in blue are the positions at which a zero is inserted at each step.
+
+![Cost gradient dilation operation](img/../imgs/cg_dilation_operation.png)
+
+This opertation is valid for a stride size (> 0). The for-loop used will not tend to affect performance much due to the size values usually being fairly small.
+
+</details>
+
+<br>
+
+### Excluded pixels
+
+A convolution operation using a stride of greater than 1 can lead to some pixels being excluded (shown in red below). The animation below illustrates a convolution operation between an input (10x10) and a filter (3x3) using a stride of 2 - this results in the last column and row being excluded from the output feature map.
+
+![Excluded pixels animation](imgs/excluded_pixels.gif)
+
+This therefore means that the 'effective' input is smaller than the actual input, which needs to be accounted for when calculating the cost gradients within this layer. The number of excluded pixels in each dimension can be calculated using the following equation:
+
+> 					pxls = (X - F) % S
+
+**Calculating dC/dF**:
+
+As derived in this [Medium post by Mayank](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-fb2f2efc4faa), it turns out the cost gradient with respect to the filters is a convolution operation between the (padded) input (trimmed by any pixels that were excluded in the forwards propagation) and the dilated cost gradient, using a stride of 1. The code below shows how this is implemented in the "cnn" framework, for a single example (i) from the batch. This will be summed over all the examples in the batch (i: 0 -> m-1).
+
+```python
+dCdF[filt_index, channel_index] += Conv2D.convolve( self.padded_input[i,channel_index, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x], dCdO_dilated[i,filt_index], stride=1 )
+```
+
+**Calculating dC/dX**:
+
+When calculating dC/dX, it is important to understand the impact of any padding that may have been applied. We can easily calculate the cost gradient w.r.t. the padded input that was used in the forwards convolution operation, then from this, we can obtain the cost gradient w.r.t. the raw layer input 'X'.
+
+Again, as shown by [Mayank](https://medium.com/@mayank.utexas/backpropagation-for-convolution-with-strides-8137e4fc2710), dC/dX is calculated using a convolution. This time it is a 'full convolution' between dC/dO_dilated and the filters rotated by 180 degrees along the last two axis (rows rotating to columns) with a stride of 1. "Full convolution" means padding the first matrix by the size of the second matrix - 1, in the respective dimensions. This has the effect of starting the second matrix with its bottom right 'cell' over the first matrix's top left 'cell'.
+
+> [TODO: Diagram to demonstrate full convolution]
+
+```python
+dCdX_pad[i,channel_index, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] += Conv2D.convolve( dCdO_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
+```
+
+Here dCdX_pad is cost gradient w.r.t. the padded input. This array is sliced to account for the potentially different shapes of full-convolution output and dCdX_pad if pxls_excl_x and pxls_excl_y are non-zero. If they are zero, however, the whole matrix will be selected and the operation will still work.
+
+I have to credit [Pavithra Solai](https://medium.com/@pavisj/convolutions-and-backpropagations-46026a8f5d2c) for giving a very useful introduction to the backpropagation process of convolutional layers. It was through reading this blog that I first started to understand how to implment the convolution backpropagation. The calculation Pavithra shows is slightly different to what I have described here because their example uses a stride of 1 and no padding whereas, the operation as I describe is the general case that will work for all configurations.
+
+<br>
+
 ## Conv2D Layer Object
 
 The Conv2D object represents a single convolutional layer that can work with 2-dimensional convolutions. **This does not mean the input data can only be 2D**, there is a notable difference between performing 2D convolutions vs 3D convolutions. 3D convolutions are not covered here.
@@ -144,19 +238,56 @@ This layer expects a 4-dimensional input matrix containing multiple 3D arrays; s
 
 Other implmentations could include more hyper-params, those stated here are really just the key hyper-params.
 
-### Back-propagation
-
-The aim of back-propagation is to get the cost gradient with respect to (w.r.t.): filters  (dCdF), biases (dCdB) and the input to this layer (dCdX).
-
-To calculate these cost gradients, the dilated cost gradient (w.r.t. layer output) and the number of pixels exluded in the forwards pass need to be obtained. 
-
-> TODO: continue... 
-
-**dC/dF**:
-
-Cost gradient with respect to the filters turns out to be a convolution operation between the (padded) input - trimmed by any pixels that were excluded in the forwards propagation - and the dilated cost gradient, using a stride of 1.
+<br>
 
 # Pooling Layer
+
+The main function of the pooling layer is to reduce the dimensionality of the data by removing unwanted noise. The most common type of pooling is 'Max Pooling' which takes the largest value in each region - focussing on the strongest signal.
+
+The process is implemented in a similar way to the convolutions except the filters do not contain any weights and there are no weighted sums. Instead the filters are used to define the focus region for each step and then one of several operations is performed on the sub-array. Typically the 3 main operation choices here are 'max', 'mean', 'min' - these are all implemented in the cnn framework.
+
+## Forwards Propagation Implmentation
+
+The filter is 'shifted' over the input image. At each step, either the max, mean or min of the values in scope is taken and placed in the corresponding position of the output array. The below diagram shows an example max pooling operation of a matrix (6x6) with a 2x2 filter and a stride of 2.
+
+![Max Pooling Operation Gif]('imgs/../imgs/max%20pooling.gif)
+
+The code block below shows how the pooling operation can be implmented.
+
+<details>
+
+<summary>Pooling code</summary>
+
+```python
+# Shift Filter Window over the image and perform the downsampling
+curr_y = out_y = 0
+while curr_y <= pad_rows - self.FILT_SHAPE[0]:
+	curr_x = out_x = 0
+	while curr_x <= pad_cols - self.FILT_SHAPE[1]:
+		for channel_index in range(channels):
+			if self.POOL_TYPE == 'max':
+				sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+				self.output[i,channel_index, out_y, out_x] = np.max( sub_arr )
+			elif self.POOL_TYPE == 'min':
+				sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
+				self.output[i,channel_index, out_y, out_x] = np.min( sub_arr )
+			elif self.POOL_TYPE == 'mean':
+				sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
+				self.output[i,channel_index, out_y, out_x] = np.mean( sub_arr )
+
+		curr_x += self.STRIDE
+		out_x += 1
+	curr_y += self.STRIDE
+	out_y += 1
+```
+
+</details>
+
+## Backwards Propagation Implemtation
+
+
+## Pool Layer Object
+
 
 
 # Fully Connected Layer
