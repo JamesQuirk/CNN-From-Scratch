@@ -1,5 +1,7 @@
 import numpy as np
 
+from cnn.params import CNNParam
+
 class RMSProp:
 	''' Root mean square propagation '''
 
@@ -10,31 +12,13 @@ class RMSProp:
 		self.EPSILON = epsilon
 		self.BETA = beta
 
-	@property
-	def model(self):
-		return self._model
+	def update_param(self,param) -> np.ndarray:
+		if "momentum1" in param.associated_data["momentum1"]:
+			s = param.associated_data["momentum1"]
+		else:
+			s = np.zeros(shape=param.shape)
 
-	@model.setter
-	def model(self,val):
-		self._model = val
-		self._init_params()
+		s = self.BETA * s + (1 - self.BETA) * np.square(param.gradient)
 
-	def _init_params(self):
-		self.params = {}	# Adam Params; contains m, v for each trainable parameter.
-		for layer in self.model.structure:
-			if layer.TRAINABLE:
-				self.params[layer.MODEL_STRUCTURE_INDEX] = {}
-				for param_name, param in layer.params.items():
-					self.params[layer.MODEL_STRUCTURE_INDEX][param_name] = {
-						's':np.zeros(shape=param['values'].shape)
-					}
-
-	def update_param(self,param,param_grad,layer_index) -> np.ndarray:
-		# TODO: Change function sig. Needs to be consistent with other optimisers.
-		assert param['name'] in ('weights','filters','bias'), 'Invalid param name provided.'
-		s = self.params[layer_index][param['name']]['s']
-
-		s = self.BETA * s + (1 - self.BETA) * np.square(param_grad)
-
-		self.params[layer_index][param['name']]['s'] = s
-		return param['values'] - self.ALPHA * ( param_grad / (np.sqrt( s ) + self.EPSILON) )
+		param.associated_data["momentum1"] = s
+		return param - self.ALPHA * ( param.gradient / (np.sqrt( s ) + self.EPSILON) )
