@@ -101,8 +101,6 @@ class Model():
 				# self.details['param_counts'].append(curr_layer.NUM_PARAMS)
 				# self.details['output_shapes'].append(curr_layer.OUTPUT_SHAPE)
 
-		self.OPTIMISER.model = self	# Must be set after all layers are prepared.
-
 		self.is_prepared = True
 		# print(self.details)
 		self.print_summary()
