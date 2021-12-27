@@ -146,7 +146,7 @@ class Conv2D(Layer):
 		# print('PIXELS EXCLUDED:',pxls_excl_x,pxls_excl_y)
 
 		# Find cost gradient wrt previous output and filters.
-		rotated_filters = np.rot90( self.filters, k=2, axes=(1,2) )	# rotate 2x90 degs, rotating in direction of rows to columns.
+		rotated_filters = np.rot90( self.filters, k=2, axes=(2,3) )	# rotate 2x90 degs, rotating in direction of rows to columns.
 		dCdX_pad = np.zeros(shape=self.padded_input.shape)
 		if self.VECTORISED:
 			dCdF = np.transpose(Conv2D.convolve_vectorised(np.transpose(self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],axes=(1,0,2,3)),np.transpose(cost_gradient_dilated,axes=(1,0,2,3)),stride=1),axes=(1,0,2,3))
@@ -157,13 +157,11 @@ class Conv2D(Layer):
 				for filt_index in range(self.NUM_FILTERS):
 					for channel_index in range(channels):
 						dCdF[filt_index, channel_index] += Conv2D.convolve( self.padded_input[i,channel_index, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x], cost_gradient_dilated[i,filt_index], stride=1 )
-
 						dCdX_pad[i,channel_index, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] += Conv2D.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
-			
 		# dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
 		
 		# ADJUST THE FILTERS
-		assert dCdF.shape == self.params['filters']['values'].shape, f'dCdF shape {dCdF.shape} does not match filters shape {self.params["filters"]["values"].shape}.'
+		assert dCdF.shape == self.filters.shape, f'dCdF shape {dCdF.shape} does not match filters shape {self.filters.shape}.'
 		self.filters.gradient = dCdF
 		if self.filters.trainable:
 			self.filters = self.model.OPTIMISER.update_param(self.filters)
@@ -210,7 +208,6 @@ class Conv2D(Layer):
 
 			curr_y += stride
 			out_y += 1
-
 		return output
 
 	@staticmethod
