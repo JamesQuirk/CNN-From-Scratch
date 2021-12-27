@@ -1,4 +1,4 @@
-from src import cnn
+import cnn
 import numpy as np
 from sklearn.datasets import load_iris
 import matplotlib.pyplot as plt
@@ -12,13 +12,13 @@ Y_onehot = cnn.CNN.one_hot_encode(Y.reshape((-1,1)),num_cats=3)
 print(X.shape,Y_onehot.shape)
 # print(X,Y_onehot)
 
-model = cnn.CNN(optimiser_method='adam')
+model = cnn.Model(optimiser_method='adam')
 
 model.add_layer(
-	cnn.CNN.FC_Layer(3,input_shape=(4,1),activation='relu',initiation_method='kaiming_normal')
+	cnn.layers.FC(3,input_shape=(4,1),activation='relu',initiation_method='kaiming_normal')
 )
 model.add_layer(
-	cnn.CNN.FC_Layer(3,activation='softmax',initiation_method='kaiming_normal')
+	cnn.layers.FC(3,activation='softmax',initiation_method='kaiming_normal')
 )
 
 model.prepare_model()

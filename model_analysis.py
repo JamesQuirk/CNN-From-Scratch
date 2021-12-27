@@ -1,7 +1,7 @@
-from src.cnn import CNN
-from src.cnn_analyser import CNN_Analyser
+from cnn.model import load_model
+from model_analysis import CNN_Analyser
 
-model = CNN.load_model('models/cnn_model_adam_tf_comparitor_vectorised_14-33-36.pkl')
+model = load_model('models/cnn_model_adam_tf_comparitor_vectorised_14-33-36.pkl')
 CA = CNN_Analyser(model)
 
 # print(model.get_model_details())
