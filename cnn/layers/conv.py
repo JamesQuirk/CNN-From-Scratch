@@ -174,7 +174,7 @@ class Conv2D(Layer):
 				full_convolve=True)
 		else:
 			dCdF = np.zeros(shape=self.filters.shape)
-			effective_input_gradient = np.zeros(shape=self.padded_input.shape)
+			effective_input_gradient = np.zeros(shape=effective_input.shape)
 			for i in range(batch_size):
 				for filt_index in range(self.NUM_FILTERS):
 					for channel_index in range(channels):
@@ -196,7 +196,7 @@ class Conv2D(Layer):
 
 		# Obtain dCdX, accounting for padding and excluded input values
 		dCdX_pad = np.zeros(shape=self.padded_input.shape)
-		dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = effective_input
+		dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = effective_input_gradient
 		dCdX = dCdX_pad[ :, : , self._ROW_UP_PAD : dCdX_pad.shape[-2] - self._ROW_DOWN_PAD , self._COL_LEFT_PAD : dCdX_pad.shape[-1] - self._COL_RIGHT_PAD ]
 		assert dCdX.shape == self.input.shape, f'dCdX shape [{dCdX.shape}] does not match layer input shape [{self.input.shape}].'
 
