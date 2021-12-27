@@ -5,8 +5,12 @@ from datetime import datetime as dt
 from . import layers
 from . import optimisers
 
+def load_model(name):
+	assert name.split('.')[-1] == 'pkl'
+	with open(name, 'rb') as file:  
+		model = pickle.load(file)
+	return model
 
-# CLASS
 class Model():
 	"""
 	This is the top level class.
