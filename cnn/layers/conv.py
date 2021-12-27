@@ -149,8 +149,31 @@ class Conv2D(Layer):
 		rotated_filters = np.rot90( self.filters, k=2, axes=(2,3) )	# rotate 2x90 degs, rotating in direction of rows to columns.
 		dCdX_pad = np.zeros(shape=self.padded_input.shape)
 		if self.VECTORISED:
-			dCdF = np.transpose(Conv2D.convolve_vectorised(np.transpose(self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],axes=(1,0,2,3)),np.transpose(cost_gradient_dilated,axes=(1,0,2,3)),stride=1),axes=(1,0,2,3))
-			dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = Conv2D.convolve_vectorised(cost_gradient_dilated,np.transpose(rotated_filters,axes=(1,0,2,3)),stride=1,full_convolve=True)
+			# NOTE: convolution function sums across channels; in this case we want to sum across batch data points so we 
+			# transpose the arrays to switch the 'channels' with the 'batch' fields. We then need to switch these back for the
+			# resultant array.
+			dCdF = np.transpose(
+				Conv2D.convolve_vectorised(
+					np.transpose(
+						self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],
+						axes=(1,0,2,3)
+					),
+					np.transpose(
+						cost_gradient_dilated,
+						axes=(1,0,2,3)
+					),
+					stride=1
+				),
+				axes=(1,0,2,3))
+			# NOTE: Here we need to transpose the filters to allign the channels of the filters with the batched data points in the cost gradient array.
+			dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = Conv2D.convolve_vectorised(
+				cost_gradient_dilated,
+				np.transpose(
+					rotated_filters,
+					axes=(1,0,2,3)
+				),
+				stride=1,
+				full_convolve=True)
 		else:
 			dCdF = np.zeros(shape=self.filters.shape)
 			for i in range(batch_size):
