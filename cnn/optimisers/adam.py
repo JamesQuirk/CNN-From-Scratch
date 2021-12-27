@@ -17,7 +17,6 @@ class Adam(BaseOptimiser):
 		self.EPSILON = epsilon	# This is a very small value just to avoid division by 0.
 
 	def update_param(self,param: CNNParam) -> np.ndarray:
-		# TODO: Change function sig. Needs to be consistent with other optimisers.
 		if "momentum1" in param.associated_data:
 			momentum1 = param.associated_data["momentum1"]
 		else:

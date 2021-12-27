@@ -41,7 +41,7 @@ def dilate(array: np.ndarray,channel_width: int) -> np.ndarray:
 	dilation_idx_row = np.arange(rows-1) + 1	# Intiatial indices for insertion of zeros
 	dilation_idx_col = np.arange(cols-1) + 1	# Intiatial indices for insertion of zeros
 	dilated_array = array.copy()
-	for n in range(1,channel_width):	# the n multiplier is to increment the indices in the non-uniform manner required.
+	for n in range(1,channel_width+1):	# the n multiplier is to increment the indices in the non-uniform manner required.
 		dilated_array = np.insert(
 			np.insert( dilated_array, dilation_idx_row * n, 0, axis=2 ),
 			dilation_idx_col * n, 0, axis=3)
