@@ -1,3 +1,4 @@
+from cnn.params import CNNParam
 from .adam import Adam
 from .gd import GradientDescent
 from .rmsprop import RMSProp
@@ -20,4 +21,7 @@ def from_name(name,learning_rate):
 			else:
 				return optimiser(learning_rate=learning_rate)
 			
+class BaseOptimiser:
+	def update_param(param: CNNParam) -> np.ndarray:
+		raise NotImplementedError("Optimisers inheriting from this base class must implement update_param() method.")
 

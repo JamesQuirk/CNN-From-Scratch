@@ -1,8 +1,9 @@
 import numpy as np
+from cnn.optimisers import BaseOptimiser
 
 from cnn.params import CNNParam
 
-class RMSProp:
+class RMSProp(BaseOptimiser):
 	''' Root mean square propagation '''
 
 	ALIAS = 'rmsprop'
@@ -12,7 +13,7 @@ class RMSProp:
 		self.EPSILON = epsilon
 		self.BETA = beta
 
-	def update_param(self,param) -> np.ndarray:
+	def update_param(self,param: CNNParam) -> np.ndarray:
 		if "momentum1" in param.associated_data["momentum1"]:
 			s = param.associated_data["momentum1"]
 		else:

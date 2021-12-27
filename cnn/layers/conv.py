@@ -38,7 +38,7 @@ class Conv2D(Layer):
 		self.VECTORISED = vectorised
 		self.TRACK_HISTORY = track_history
 
-	def prepare_layer(self):
+	def prepare_layer(self) -> None:
 		if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 			assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 		else:
@@ -55,7 +55,7 @@ class Conv2D(Layer):
 
 		# Initiate params
 		self.filters = CNNParam(
-			utils.array_init(shape=(self.NUM_FILTERS,self.INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED),
+			utils.array.array_init(shape=(self.NUM_FILTERS,self.INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED),
 			trainable=True
 		)
 		self.bias = CNNParam(
@@ -77,15 +77,15 @@ class Conv2D(Layer):
 				pad_rows_needed = ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
 				pad_cols_needed = ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
 
-			self.COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
-			self.COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
-			self.ROW_UP_PAD = pad_rows_needed // 2	# // Floor division
-			self.ROW_DOWN_PAD = math.ceil(pad_rows_needed / 2)
+			self._COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
+			self._COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
+			self._ROW_UP_PAD = pad_rows_needed // 2	# // Floor division
+			self._ROW_DOWN_PAD = math.ceil(pad_rows_needed / 2)
 		else:
-			self.COL_LEFT_PAD = self.COL_RIGHT_PAD = self.ROW_UP_PAD = self.ROW_DOWN_PAD = self.PADDING
+			self._COL_LEFT_PAD = self._COL_RIGHT_PAD = self._ROW_UP_PAD = self._ROW_DOWN_PAD = self.PADDING
 
-		col_out = int((NUM_INPUT_COLS + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
-		row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
+		col_out = int((NUM_INPUT_COLS + (self._COL_LEFT_PAD + self._COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
+		row_out = int((NUM_INPUT_ROWS + (self._ROW_DOWN_PAD + self._ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
 		self.OUTPUT_SHAPE = (self.NUM_FILTERS,row_out,col_out)
 		
@@ -94,13 +94,13 @@ class Conv2D(Layer):
 			assert self.OUTPUT_SHAPE[-2:] == self.INPUT_SHAPE[-2:], f'"SAME" padding chosen however last two dimensions of input and output shapes do not match; {self.INPUT_SHAPE} and {self.OUTPUT_SHAPE} respectively.'	# Channels may differ.
 
 
-	def _forwards(self,_input):
+	def _forwards(self,_input: np.ndarray) -> np.ndarray:
 		assert _input.ndim == 4 and _input.shape[1:] == self.INPUT_SHAPE, f'Input shape, {_input.shape[1:]}, expected to be, {self.INPUT_SHAPE} for each example (observation).'
 		self.input = _input
 		batch_size = _input.shape[0]
 
 		# Apply the padding to the input.
-		self.padded_input = np.pad(self.input,[(0,0),(0,0),(self.ROW_UP_PAD,self.ROW_DOWN_PAD),(self.COL_LEFT_PAD,self.COL_RIGHT_PAD)],'constant',constant_values=(0,0))
+		self.padded_input = np.pad(self.input,[(0,0),(0,0),(self._ROW_UP_PAD,self._ROW_DOWN_PAD),(self._COL_LEFT_PAD,self._COL_RIGHT_PAD)],'constant',constant_values=(0,0))
 
 		if self.VECTORISED:
 			self.output = Conv2D.convolve_vectorised(self.padded_input,self.filters,self.STRIDE)
@@ -123,31 +123,29 @@ class Conv2D(Layer):
 		if self.TRACK_HISTORY: self._track_metrics(output=self.output)
 		return self.output	# NOTE: Output is 4D array of shape: ( BATCH_SIZE, NUM_FILTS, NUM_ROWS, NUM_COLS )
 
-	def _backwards(self,cost_gradient):	
+	def _backwards(self,cost_gradient: np.ndarray) -> np.ndarray:	
 		assert cost_gradient.shape == self.output.shape, f'cost_gradient shape {cost_gradient.shape} does not match layer output shape {self.output.shape}.'
 		if self.TRACK_HISTORY: self._track_metrics(cost_gradient=cost_gradient)
-		_,_, c_rows, c_cols = cost_gradient.shape
-		dilation_idx_row = np.arange(c_rows-1) + 1	# Intiatial indices for insertion of zeros
-		dilation_idx_col = np.arange(c_cols-1) + 1	# Intiatial indices for insertion of zeros
 
-		cost_gradient_dilated = cost_gradient.copy()
-		if self.STRIDE != 1:
-			for n in range(1,self.STRIDE):	# the n multiplier is to increment the indices in the non-uniform manner required.
-				cost_gradient_dilated = np.insert(
-					np.insert( cost_gradient_dilated, dilation_idx_row * n, 0, axis=2 ),
-					dilation_idx_col * n, 0, axis=3)
-		# print(f'cost_gradient shape: {cost_gradient.shape} | cost_gradient_dilated shape: {cost_gradient_dilated.shape}')
+		cost_gradient_dilated = utils.array.dilate(cost_gradient,self.STRIDE-1)
 
 		batch_size, channels, _, _ = self.padded_input.shape
 
-		# Account for filter not shifting over input an integer number of times with given stride.
+		# Account for filter not shifting over input an integer number of times with given stride. In this case, 
+		# the 'effective input is smaller than the actual input.
 		pxls_excl_x = (self.padded_input.shape[3] - self.FILT_SHAPE[1]) % self.STRIDE	# pixels excluded in x direction (cols)
 		pxls_excl_y = (self.padded_input.shape[2] - self.FILT_SHAPE[0]) % self.STRIDE	# pixels excluded in y direction (rows)
-		# print('PIXELS EXCLUDED:',pxls_excl_x,pxls_excl_y)
 
-		# Find cost gradient wrt previous output and filters.
+		# Extract effective input
+		effective_input = self.padded_input[
+			:,	# All data points 
+			:,	# All channels
+			:self.padded_input.shape[2] - pxls_excl_y, # Only rows up to those excluded in forwards pass
+			:self.padded_input.shape[3] - pxls_excl_x	# Only cols up to those excluded in forwards pass
+			]
+
+		# Find cost gradient wrt layer input and filters.
 		rotated_filters = np.rot90( self.filters, k=2, axes=(2,3) )	# rotate 2x90 degs, rotating in direction of rows to columns.
-		dCdX_pad = np.zeros(shape=self.padded_input.shape)
 		if self.VECTORISED:
 			# NOTE: convolution function sums across channels; in this case we want to sum across batch data points so we 
 			# transpose the arrays to switch the 'channels' with the 'batch' fields. We then need to switch these back for the
@@ -155,7 +153,7 @@ class Conv2D(Layer):
 			dCdF = np.transpose(
 				Conv2D.convolve_vectorised(
 					np.transpose(
-						self.padded_input[:,:, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x],
+						effective_input,
 						axes=(1,0,2,3)
 					),
 					np.transpose(
@@ -166,7 +164,7 @@ class Conv2D(Layer):
 				),
 				axes=(1,0,2,3))
 			# NOTE: Here we need to transpose the filters to allign the channels of the filters with the batched data points in the cost gradient array.
-			dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = Conv2D.convolve_vectorised(
+			effective_input_gradient = Conv2D.convolve_vectorised(
 				cost_gradient_dilated,
 				np.transpose(
 					rotated_filters,
@@ -176,12 +174,12 @@ class Conv2D(Layer):
 				full_convolve=True)
 		else:
 			dCdF = np.zeros(shape=self.filters.shape)
+			effective_input_gradient = np.zeros(shape=self.padded_input.shape)
 			for i in range(batch_size):
 				for filt_index in range(self.NUM_FILTERS):
 					for channel_index in range(channels):
-						dCdF[filt_index, channel_index] += Conv2D.convolve( self.padded_input[i,channel_index, :self.padded_input.shape[2] - pxls_excl_y, :self.padded_input.shape[3] - pxls_excl_x], cost_gradient_dilated[i,filt_index], stride=1 )
-						dCdX_pad[i,channel_index, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] += Conv2D.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
-		# dCdF = dCdF[:,:, : dCdF.shape[2] - pxls_excl_y, : dCdF.shape[3] - pxls_excl_x]	# Remove the values from right and bottom of array (this is where the excluded pixels will be).
+						dCdF[filt_index, channel_index] += Conv2D.convolve( effective_input[i,channel_index,:,:], cost_gradient_dilated[i,filt_index], stride=1 )
+						effective_input_gradient[i,channel_index, :, :] += Conv2D.convolve( cost_gradient_dilated[i,filt_index], rotated_filters[filt_index,channel_index], stride=1, full_convolve=True )
 		
 		# ADJUST THE FILTERS
 		assert dCdF.shape == self.filters.shape, f'dCdF shape {dCdF.shape} does not match filters shape {self.filters.shape}.'
@@ -196,14 +194,16 @@ class Conv2D(Layer):
 		if self.bias.trainable:
 			self.bias = self.model.OPTIMISER.update_param(self.bias)
 
-		# Remove padding that was added to the input array.
-		dCdX = dCdX_pad[ :, : , self.ROW_UP_PAD : dCdX_pad.shape[-2] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dCdX_pad.shape[-1] - self.COL_RIGHT_PAD ]
+		# Obtain dCdX, accounting for padding and excluded input values
+		dCdX_pad = np.zeros(shape=self.padded_input.shape)
+		dCdX_pad[:,:, :dCdX_pad.shape[2] - pxls_excl_y, :dCdX_pad.shape[3] - pxls_excl_x] = effective_input
+		dCdX = dCdX_pad[ :, : , self._ROW_UP_PAD : dCdX_pad.shape[-2] - self._ROW_DOWN_PAD , self._COL_LEFT_PAD : dCdX_pad.shape[-1] - self._COL_RIGHT_PAD ]
 		assert dCdX.shape == self.input.shape, f'dCdX shape [{dCdX.shape}] does not match layer input shape [{self.input.shape}].'
 
 		return dCdX
 
 	@staticmethod
-	def convolve(A, B, stride,full_convolve=False):
+	def convolve(A: np.ndarray, B: np.ndarray, stride: int,full_convolve: bool=False) -> np.ndarray:
 		""" A and B are 2D arrays. Array B will be convolved over Array A using the stride provided.
 			- 'full_convolve' is where the bottom right cell of B starts over the top of the top left cell of A and shifts by stride until the top left cell of B is over the bottom right cell of A. (i.e. A is padded in each dimension by B - 1 in the respective dimension). """
 		assert A.ndim == 2
@@ -234,7 +234,7 @@ class Conv2D(Layer):
 		return output
 
 	@staticmethod
-	def convolve_vectorised(X,K, stride, full_convolve=False):
+	def convolve_vectorised(X: np.ndarray,K: np.ndarray, stride: int, full_convolve: bool=False) -> np.ndarray:
 		"""
 		X: 4D array of shape: (batch_size,channels,rows,cols)
 		K: 4D array of shape: (num_filters,X_channels,rows,cols)

@@ -22,7 +22,7 @@ class Activation(Layer):
 		self.OUTPUT_SHAPE = self.INPUT_SHAPE
 		# self.output = np.zeros(shape=self.INPUT_SHAPE )
 
-	def _forwards(self,_input):
+	def _forwards(self,_input: np.ndarray) -> np.ndarray:
 		if self.prev_layer.LAYER_TYPE == 'FC':
 			assert len(_input.shape) == 2 and _input.shape[0] == self.INPUT_SHAPE[0], f'Expected input of shape {self.INPUT_SHAPE} instead got {(_input.shape[0],1)}'
 		self.input = _input
@@ -64,7 +64,7 @@ class Activation(Layer):
 		# print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 		return self.output
 
-	def _backwards(self,dC_dA):
+	def _backwards(self,dC_dA: np.ndarray) -> np.ndarray:
 		"""Compute derivative of Activation w.r.t. Z
 		NOTE: CURRENTLY NOT SUPPORTED FOR CONV/POOL LAYERS.
 		"""

@@ -25,7 +25,7 @@ class FC(Layer):
 			assert len(input_shape) == 2 and input_shape[1] == 1, 'Invalid input_shape tuple. Expected (n,1)'
 		self.INPUT_SHAPE = input_shape
 
-	def prepare_layer(self):
+	def prepare_layer(self) -> None:
 		if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 			assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 		else:
@@ -49,7 +49,7 @@ class FC(Layer):
 		# self.output = np.zeros(shape=(self.NUM_NODES,1))	# NOTE: This is a vertical array.
 
 
-	def _forwards(self,_input):
+	def _forwards(self,_input: np.ndarray) -> np.ndarray:
 		# print(_input.shape)
 		if self.prev_layer is None:
 			self.input = _input.T
@@ -64,7 +64,7 @@ class FC(Layer):
 		# print(f'Layer: {self.MODEL_STRUCTURE_INDEX} output:',self.output)
 		return self.output
 
-	def _backwards(self, dC_dZ):
+	def _backwards(self, dC_dZ: np.ndarray) -> np.ndarray:
 		"""
 		Take cost gradient dC/dZ (how the output of this layer affects the cost) and backpropogate
 

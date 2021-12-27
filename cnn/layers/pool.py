@@ -34,7 +34,7 @@ class Pool(Layer):
 
 		self.NUM_PARAMS = 0
 
-	def prepare_layer(self):
+	def prepare_layer(self) -> np.ndarray:
 		""" This needs to be done after the input has been identified - currently happens when train() is called. """
 		if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 			assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
@@ -87,7 +87,7 @@ class Pool(Layer):
 		if self.PAD_TYPE == 'same':
 			assert self.OUTPUT_SHAPE == self.INPUT_SHAPE	# Channels may differ.
 
-	def _forwards(self,_input):
+	def _forwards(self,_input: np.ndarray) -> np.ndarray:
 		assert _input.ndim == 4 and _input.shape[1:] == self.INPUT_SHAPE, f'Input shape, {_input.shape[1:]}, expected to be, {self.INPUT_SHAPE} for each example (observation).'
 		self.input = _input
 
@@ -137,7 +137,7 @@ class Pool(Layer):
 		if self.TRACK_HISTORY: self._track_metrics(output=self.output)
 		return self.output
 
-	def _backwards(self,cost_gradient):
+	def _backwards(self,cost_gradient: np.ndarray) -> np.ndarray:
 		'''
 		Backprop in pooling layer:
 		- nothing to be updated as there are no weights in this layer.

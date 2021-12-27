@@ -2,8 +2,12 @@ import numpy as np
 import pickle
 import math
 from datetime import datetime as dt
+
+from cnn.layers.layer import Layer
 from . import layers
 from . import optimisers
+
+from typing import Any, AnyStr
 
 def load_model(name):
 	assert name.split('.')[-1] == 'pkl'
@@ -29,7 +33,7 @@ class Model():
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
 		self.layer_counts = dict(zip(['total'] + layers.layers,[0]*(len(layers.layers)+1)))	# dict for counting number of each layer type
 
-	def add_layer(self,layer):
+	def add_layer(self,layer: Layer) -> None:
 		if layer.LAYER_TYPE == 'ACTIVATION' and self.structure[-1].LAYER_TYPE == 'ACTIVATION':
 			print('-- WARNING:: Two Activation Layers in subsequent positions in the model.')
 			if layer.FUNCTION == self.structure[-1].FUNCTION:
@@ -53,7 +57,7 @@ class Model():
 				layers.Activation(function=layer.ACTIVATION)
 			)
 
-	def remove_layer(self,index):
+	def remove_layer(self,index: int) -> None:
 		self.structure.pop(index)
 		if self.is_prepared:
 			print('-- INFO:: Re-compiling model...')
@@ -66,7 +70,7 @@ class Model():
 
 		return details
 		
-	def prepare_model(self,optimiser='gd',learning_rate=None):
+	def prepare_model(self,optimiser: Any='gd',learning_rate=None):
 		""" Called once final layer is added, each layer can now initiate its weights and biases. """
 		print('Preparing model...')
 
@@ -74,7 +78,7 @@ class Model():
 			assert optimiser.lower() in optimisers.optimiser_names, f'Unrecognised optimiser name: {optimiser}; choose from: {optimisers.optimiser_names}'
 			self.OPTIMISER = optimisers.from_name(optimiser,learning_rate)
 		else:
-			assert optimiser.__class__.__name__ in optimisers.optimiser_names, f'Invalid optimiser: {optimiser}'
+			assert (isinstance(optimiser,optimisers.BaseOptimiser) and optimiser.__class__.__name__ in optimisers.optimiser_names), f'Invalid optimiser: {optimiser}'
 			self.OPTIMISER = optimiser
 
 		self.details = {
@@ -110,7 +114,7 @@ class Model():
 		self.print_summary()
 		print(f'Model Prepared: {self.is_prepared}')
 
-	def train(self,Xs,ys,epochs,max_batch_size=32,shuffle=False,random_seed=42,learning_rate=0.01,cost_fn='mse',beta1=0.9,beta2=0.999):
+	def train(self,Xs: np.ndarray,ys: np.ndarray,epochs: int,max_batch_size: int=32,shuffle: bool=False,random_seed: int=42,learning_rate: float=0.01,cost_fn: AnyStr='mse',beta1: float=0.9,beta2: float=0.999) -> dt:
 		'''
 		Should take array of inputs and array of labels of the same length.
 
@@ -179,7 +183,7 @@ class Model():
 
 		return dt.now(), dt.now() - train_start	# returns training finish time and duration.
 
-	def _print_train_progress(self,batch_index):
+	def _print_train_progress(self,batch_index: int) -> None:
 		progess_bar_length = 30	# characters (not including '[' ']')
 		progress = (batch_index+1) / self.BATCH_COUNT
 		progressor = '=' * int(progress * progess_bar_length)
@@ -199,7 +203,7 @@ class Model():
 
 	SUPPORTED_OPTIMISERS = ('gd','momentum','rmsprop','adam')
 
-	def _iterate_forwards(self):
+	def _iterate_forwards(self) -> None:
 		for batch_ind in range(self.BATCH_COUNT):
 			ind_lower = batch_ind * self.MAX_BATCH_SIZE	# Lower bound of index range
 			ind_upper = batch_ind * self.MAX_BATCH_SIZE + self.MAX_BATCH_SIZE	# Upper bound of index range
@@ -233,7 +237,7 @@ class Model():
 
 			self._iterate_backwards()
 
-	def _iterate_backwards(self):
+	def _iterate_backwards(self) -> None:
 		self.iteration_index += 1
 		self.history['cost'][self.iteration_index] = self.iteration_cost
 		# Backpropagate the cost_gradient
@@ -244,7 +248,7 @@ class Model():
 		self.iteration_cost = 0
 		self.iteration_cost_gradient = 0
 
-	def predict(self,Xs,training=False):
+	def predict(self,Xs: np.ndarray,training: bool=False) -> np.ndarray:
 		if training: self.feed_forwards_cycle_index += 1
 		for layer in self.structure:
 			Xs = layer._forwards(Xs)
@@ -252,7 +256,7 @@ class Model():
 			# print('Output:',X)
 		return Xs
 
-	def evaluate(self,Xs,ys):
+	def evaluate(self,Xs: np.ndarray,ys: np.ndarray) -> int:
 		predictions = self.predict(Xs,training=False)
 		accuracy = np.sum((np.argmax(ys.T,axis=0) == np.argmax(predictions,axis=0))) / len(Xs)
 		return accuracy
@@ -269,7 +273,7 @@ class Model():
 
 	SUPPORTED_COST_FUNCTIONS = ('mse','cross_entropy')
 
-	def cost(self,predictions,labels,derivative=False):
+	def cost(self,predictions: np.ndarray,labels: np.ndarray,derivative: bool=False) -> float:
 		'''
 		Cost function to provide measure of model 'correctness'. returns vector cost value.
 		'''
