@@ -25,12 +25,17 @@ class Adam:
 			momentum2 = param.associated_data["momentum2"]
 		else:
 			momentum2 = np.zeros(shape=param.shape)
+		if "time_step" in param.associated_data:
+			t = param.associated_data["time_step"]
+		else:
+			t = 0
 
 		momentum1 = self.BETA1 * momentum1 + (1 - self.BETA1) * param.gradient
 		momentum2 = self.BETA2 * momentum2 + (1 - self.BETA2) * np.square(param.gradient)
-		momentum1_hat = momentum1 / (1 - np.power(self.BETA1,self.model.iteration_index + 1))
-		momentum2_hat = momentum2 / (1 - np.power(self.BETA2,self.model.iteration_index + 1))
+		momentum1_hat = momentum1 / (1 - np.power(self.BETA1,t + 1))
+		momentum2_hat = momentum2 / (1 - np.power(self.BETA2,t + 1))
 
 		param.associated_data["momentum1"] = momentum1
 		param.associated_data["momentum2"] = momentum2
+		param.associated_data["time_step"] = t + 1
 		return param - self.ALPHA * ( momentum1_hat / (np.sqrt( momentum2_hat ) + self.EPSILON) )
