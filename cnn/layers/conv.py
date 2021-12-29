@@ -46,13 +46,6 @@ class Conv2D(Layer):
 
 		assert len(self.INPUT_SHAPE) == 3, 'Invalid INPUT_SHAPE'
 
-		# # Convert 2D input to 3D.
-		# if len(self.INPUT_SHAPE) == 2:
-		# 	self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE	
-
-		NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
-		NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
-
 		# Initiate params
 		self.filters = CNNParam(
 			utils.array.array_init(shape=(self.NUM_FILTERS,self.INPUT_SHAPE[0],self.FILT_SHAPE[0],self.FILT_SHAPE[1]),method=self.INITIATION_METHOD,seed=self.RANDOM_SEED),
@@ -64,28 +57,12 @@ class Conv2D(Layer):
 		)
 
 		# Need to account for padding.
-		if self.PAD_TYPE != None:
-			if self.PAD_TYPE == 'same':
-				pad_cols_needed = max((NUM_INPUT_COLS - 1) * self.STRIDE + self.FILT_SHAPE[1] - NUM_INPUT_COLS, 0)
-				pad_rows_needed = max((NUM_INPUT_ROWS - 1) * self.STRIDE + self.FILT_SHAPE[0] - NUM_INPUT_ROWS, 0)
-			elif self.PAD_TYPE == 'valid':
-				# TensoFlow definition of this is "no padding". The input is just processed as-is.
-				pad_rows_needed = pad_cols_needed = 0
-			elif self.PAD_TYPE == 'include':
-				# Here we will implement the padding method to avoid input data being excluded/ missed by the convolution.
-				# - This happens when, (I_dim - F_dim) % stride != 0
-				pad_rows_needed = ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
-				pad_cols_needed = ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
+		self.COL_LEFT_PAD, self.COL_RIGHT_PAD, self.ROW_UP_PAD, self.ROW_DOWN_PAD = utils.array.determine_padding(
+			self.PAD_TYPE, self.PADDING, self.INPUT_SHAPE, self.FILT_SHAPE, self.STRIDE
+		)
 
-			self._COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
-			self._COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
-			self._ROW_UP_PAD = pad_rows_needed // 2	# // Floor division
-			self._ROW_DOWN_PAD = math.ceil(pad_rows_needed / 2)
-		else:
-			self._COL_LEFT_PAD = self._COL_RIGHT_PAD = self._ROW_UP_PAD = self._ROW_DOWN_PAD = self.PADDING
-
-		col_out = int((NUM_INPUT_COLS + (self._COL_LEFT_PAD + self._COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
-		row_out = int((NUM_INPUT_ROWS + (self._ROW_DOWN_PAD + self._ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
+		col_out = int((self.INPUT_SHAPE[1] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
+		row_out = int((self.INPUT_SHAPE[0] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
 		self.OUTPUT_SHAPE = (self.NUM_FILTERS,row_out,col_out)
 		

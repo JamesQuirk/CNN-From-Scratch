@@ -1,6 +1,7 @@
 import numpy as np
 from .layer import Layer
 import math
+from cnn import utils
 
 class Pool(Layer):
 	def __init__(self,filt_shape: tuple or int,stride: int,pool_type: str='max',padding: int=0,pad_type: str=None,input_shape=None,vectorised=True,track_history=True):
@@ -43,40 +44,12 @@ class Pool(Layer):
 
 		assert len(self.INPUT_SHAPE) == 3, 'Invalid INPUT_SHAPE'
 
-		NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
-		NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
+		self.COL_LEFT_PAD, self.COL_RIGHT_PAD, self.ROW_UP_PAD, self.ROW_DOWN_PAD = utils.array.determine_padding(
+			self.PAD_TYPE, self.PADDING, self.INPUT_SHAPE, self.FILT_SHAPE, self.STRIDE
+		)
 
-		# Need to account for padding.
-		if self.PAD_TYPE != None:
-			if self.PAD_TYPE == 'same':
-				nopad_out_cols = math.ceil(float(NUM_INPUT_COLS) / float(self.STRIDE))
-				pad_cols_needed = max((nopad_out_cols - 1) * self.STRIDE + self.FILT_SHAPE[1] - NUM_INPUT_COLS, 0)
-				nopad_out_rows = math.ceil(float(NUM_INPUT_ROWS) / float(self.STRIDE))
-				pad_rows_needed = max((nopad_out_rows - 1) * self.STRIDE + self.FILT_SHAPE[0] - NUM_INPUT_ROWS, 0)
-			elif self.PAD_TYPE == 'valid':
-				# TensoFlow definition of this is "no padding". The input is just processed as-is.
-				pad_rows_needed = pad_cols_needed = 0
-			elif self.PAD_TYPE == 'include':
-				# Here we will implement the padding method to avoid input data being excluded/ missed by the convolution.
-				# - This happens when, (I_dim - F_dim) % stride != 0
-				if (NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE != 0:
-					pad_rows_needed = self.FILT_SHAPE[0] - ((NUM_INPUT_ROWS - self.FILT_SHAPE[0]) % self.STRIDE)
-				else:
-					pad_rows_needed = 0
-				if (NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE != 0:
-					pad_cols_needed = self.FILT_SHAPE[1] - ((NUM_INPUT_COLS - self.FILT_SHAPE[1]) % self.STRIDE)
-				else:
-					pad_cols_needed = 0
-
-			self.COL_LEFT_PAD = pad_cols_needed // 2	# // Floor division
-			self.COL_RIGHT_PAD = math.ceil(pad_cols_needed / 2)
-			self.ROW_UP_PAD = pad_rows_needed // 2	# // Floor division
-			self.ROW_DOWN_PAD = math.ceil(pad_rows_needed / 2)
-		else:
-			self.COL_LEFT_PAD = self.COL_RIGHT_PAD = self.ROW_UP_PAD = self.ROW_DOWN_PAD = self.PADDING
-
-		col_out = int((NUM_INPUT_COLS + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
-		row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
+		col_out = int((self.INPUT_SHAPE[1] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
+		row_out = int((self.INPUT_SHAPE[0] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
 		self.OUTPUT_SHAPE = (self.INPUT_SHAPE[0],row_out,col_out)
 		if self.PAD_TYPE == 'same':
