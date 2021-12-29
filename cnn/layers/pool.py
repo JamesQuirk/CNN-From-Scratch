@@ -43,10 +43,6 @@ class Pool(Layer):
 
 		assert len(self.INPUT_SHAPE) == 3, 'Invalid INPUT_SHAPE'
 
-		# # Convert 2D input to 3D.
-		# if len(self.INPUT_SHAPE) == 2:
-		# 	self.INPUT_SHAPE = tuple([1]) + self.INPUT_SHAPE
-
 		NUM_INPUT_ROWS = self.INPUT_SHAPE[-2]
 		NUM_INPUT_COLS = self.INPUT_SHAPE[-1]
 
@@ -83,7 +79,6 @@ class Pool(Layer):
 		row_out = int((NUM_INPUT_ROWS + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
 		self.OUTPUT_SHAPE = (self.INPUT_SHAPE[0],row_out,col_out)
-		# self.output = np.zeros(shape=(self.INPUT_SHAPE[0],row_out,col_out))	# Output initiated.
 		if self.PAD_TYPE == 'same':
 			assert self.OUTPUT_SHAPE == self.INPUT_SHAPE	# Channels may differ.
 
@@ -107,7 +102,7 @@ class Pool(Layer):
 				X_flat_pooled = np.mean(self.Xsliced, axis=2)
 			elif self.POOL_TYPE == 'min':
 				X_flat_pooled = np.min(self.Xsliced,axis=2)
-			self.output =  X_flat_pooled.reshape((self.padded_input.shape[0],*self.OUTPUT_SHAPE))
+			self.output = X_flat_pooled.reshape((self.padded_input.shape[0],*self.OUTPUT_SHAPE))
 		else:
 			self.output = np.zeros(shape=(self.input.shape[0],*self.OUTPUT_SHAPE))
 			batch_size, channels, proc_rows, proc_cols = self.padded_input.shape
@@ -118,14 +113,12 @@ class Pool(Layer):
 					curr_x = out_x = 0
 					while curr_x <= proc_cols - self.FILT_SHAPE[1]:
 						for channel_index in range(channels):
+							sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
 							if self.POOL_TYPE == 'max':
-								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
 								self.output[i,channel_index, out_y, out_x] = np.max( sub_arr )
 							elif self.POOL_TYPE == 'min':
-								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x+ self.FILT_SHAPE[1] ]
 								self.output[i,channel_index, out_y, out_x] = np.min( sub_arr )
 							elif self.POOL_TYPE == 'mean':
-								sub_arr = self.padded_input[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ]
 								self.output[i,channel_index, out_y, out_x] = np.mean( sub_arr )
 
 						curr_x += self.STRIDE
