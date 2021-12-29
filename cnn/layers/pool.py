@@ -47,9 +47,8 @@ class Pool(Layer):
 		self.COL_LEFT_PAD, self.COL_RIGHT_PAD, self.ROW_UP_PAD, self.ROW_DOWN_PAD = utils.array.determine_padding(
 			self.PAD_TYPE, self.PADDING, self.INPUT_SHAPE, self.FILT_SHAPE, self.STRIDE
 		)
-
-		col_out = int((self.INPUT_SHAPE[1] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
-		row_out = int((self.INPUT_SHAPE[0] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
+		col_out = int((self.INPUT_SHAPE[2] + (self.COL_LEFT_PAD + self.COL_RIGHT_PAD) - self.FILT_SHAPE[1]) / self.STRIDE) + 1
+		row_out = int((self.INPUT_SHAPE[1] + (self.ROW_DOWN_PAD + self.ROW_UP_PAD) - self.FILT_SHAPE[0]) / self.STRIDE) + 1
 
 		self.OUTPUT_SHAPE = (self.INPUT_SHAPE[0],row_out,col_out)
 		if self.PAD_TYPE == 'same':
