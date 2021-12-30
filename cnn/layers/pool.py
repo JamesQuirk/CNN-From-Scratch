@@ -120,22 +120,30 @@ class Pool(Layer):
 		assert cost_gradient.shape == self.output.shape
 		if self.TRACK_HISTORY: self._track_metrics(cost_gradient=cost_gradient)
 		# Initiate to input shape.
-		dC_dIpad = np.zeros_like(self.padded_input)
+		dC_dIpad = np.zeros(self.padded_input.shape,dtype=np.float64)
 
 		batch_size, channels, padded_rows, padded_cols = dC_dIpad.shape
 
 		if self.VECTORISED:
+			# Distribution array represents a boolean array indicating which data points the cost gradient should flow back through. 
 			if self.POOL_TYPE == 'max':
 				distribution_arr = (np.max(self.Xsliced,axis=2,keepdims=True) == self.Xsliced).astype(int)
 			elif self.POOL_TYPE == 'min':
 				distribution_arr = (np.min(self.Xsliced,axis=2,keepdims=True) == self.Xsliced).astype(int)
 			elif self.POOL_TYPE == 'mean':
-				distribution_arr = np.ones_like(self.Xsliced)
+				distribution_arr = np.ones(self.Xsliced.shape)
+
+			# The cost gradient array is 'flattened' so that each column corresponds to the sub array from the forwards propagation
 			cg_flat = cost_gradient.reshape((*self.Xsliced.shape[:2],1,self.Xsliced.shape[-1])) * distribution_arr
+
+			# Here the cost gradient values are combined to form the cost gradient values corresponding to each of the values in 
+			# the padded input.
 			col_index = 0
 			for vstart in range(0,self.padded_input.shape[-2] - self.FILT_SHAPE[0] + 1, self.STRIDE):
 				for hstart in range(0, self.padded_input.shape[-1] - self.FILT_SHAPE[1] + 1, self.STRIDE):
-					dC_dIpad[:,:,vstart:vstart+self.FILT_SHAPE[0],hstart:hstart+self.FILT_SHAPE[1]] += np.transpose(cg_flat[:,:,:,col_index].reshape((*self.padded_input.shape[:2],*self.FILT_SHAPE[::-1])),axes=(0,1,3,2))
+					dC_dIpad[:,:,vstart:vstart+self.FILT_SHAPE[0],hstart:hstart+self.FILT_SHAPE[1]] += np.transpose(
+						cg_flat[:,:,:,col_index].reshape((*self.padded_input.shape[:2],*self.FILT_SHAPE[::-1])),
+						axes=(0,1,3,2))
 					col_index += 1
 		else:
 			# Step over the array similarly to the forwards pass and compute the expanded cost gradients.
@@ -150,24 +158,22 @@ class Pool(Layer):
 							if self.POOL_TYPE == 'max':
 								# Set value of node that corresponds with the max value node of the input to the cost gradient value at (cost_y,cost_x)
 								max_node_y, max_node_x = np.array( np.unravel_index( np.argmax( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
-
 								dC_dIpad[i, channel_index, max_node_y, max_node_x] += cost_val
 							elif self.POOL_TYPE == 'min':
 								# Set value of node that corresponds with the min value node of the input to the cost gradient value at (cost_y,cost_x)
 								min_node_y, min_node_x = np.array( np.unravel_index( np.argmin( sub_arr ), sub_arr.shape ) ) + np.array([curr_y, curr_x])	# addition of curr_y & curr_x is to get position in padded_input array (not just local sub_arr).
-
 								dC_dIpad[i, channel_index, min_node_y, min_node_x] += cost_val
 							elif self.POOL_TYPE == 'mean':
-								sub_arr_props = sub_arr / sub_arr.sum()
-
-								dC_dIpad[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += sub_arr_props * cost_val
+								# Set all of the values associated with each sub-array from forwards pass as the corresponding cost gradient value;
+								# summing values where sub-arrays overlap.
+								dC_dIpad[i, channel_index, curr_y : curr_y + self.FILT_SHAPE[0], curr_x : curr_x + self.FILT_SHAPE[1] ] += cost_val
 
 						curr_x += self.STRIDE
 						cost_x += 1
 					curr_y += self.STRIDE
 					cost_y += 1
 
-		# Remove padding that was added to the input array.
+		# Remove padding that was added to the input array to obtain the cost gradient array for the layer input.
 		dC_dI = dC_dIpad[ :, : , self.ROW_UP_PAD : dC_dIpad.shape[-2] - self.ROW_DOWN_PAD , self.COL_LEFT_PAD : dC_dIpad.shape[-1] - self.COL_RIGHT_PAD ]
 		assert dC_dI.shape == self.input.shape, f'dC/dI shape [{dC_dI.shape}] does not match layer input shape [{self.input.shape}].'
 		return dC_dI
