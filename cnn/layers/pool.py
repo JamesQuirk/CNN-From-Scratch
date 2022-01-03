@@ -15,7 +15,6 @@ class Pool(Layer):
 		'''
 		super().__init__()
 
-		self.LAYER_TYPE = self.__class__.__name__
 		self.trainable = False
 		if type(filt_shape) == tuple:
 			assert len(filt_shape) == 2, 'Expected 2 dimensional tuple in form: (rows,cols)'

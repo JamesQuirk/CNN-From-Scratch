@@ -19,7 +19,6 @@ class Conv2D(Layer):
 		assert num_filters > 0, 'Cannot use less than 1 filter in Conv Layer.'
 		super().__init__()
 
-		self.LAYER_TYPE = self.__class__.__name__
 		if type(filt_shape) == tuple:
 			assert len(filt_shape) == 2, 'Expected 2 dimensional tuple in form: (rows,cols)'
 			self.FILT_SHAPE = filt_shape	# 2D tuple describing num rows and cols

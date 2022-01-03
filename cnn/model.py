@@ -34,7 +34,7 @@ class Model():
 		self.layer_counts = dict(zip(['total'] + layers.layers,[0]*(len(layers.layers)+1)))	# dict for counting number of each layer type
 
 	def add_layer(self,layer: Layer) -> None:
-		if layer.LAYER_TYPE == 'ACTIVATION' and self.structure[-1].LAYER_TYPE == 'ACTIVATION':
+		if layer.LAYER_TYPE == 'Activation' and self.structure[-1].LAYER_TYPE == 'Activation':
 			print('-- WARNING:: Two Activation Layers in subsequent positions in the model.')
 			if layer.FUNCTION == self.structure[-1].FUNCTION:
 				print('--- INFO:: Both Activation Layers are the same, skipping creation of second layer.')
@@ -43,15 +43,15 @@ class Model():
 		layer.model = self
 
 		if len(self.structure) > 0:
-			if layer.__class__.__name__ == 'FC' and self.structure[-1].__class__.__name__ not in ('Flatten','FC','Activation'):
+			if layer.LAYER_TYPE == 'FC' and self.structure[-1].LAYER_TYPE not in ('Flatten','FC','Activation'):
 				# If no Flatten layer added before adding first FC layer, one will be added automatically.
 				self.add_layer(layers.Flatten())
 
 		self.structure.append(layer)
-		self.layer_counts[layer.__class__.__name__] += 1
+		self.layer_counts[layer.LAYER_TYPE] += 1
 		self.layer_counts['total'] += 1
 
-		if layer.__class__.__name__ == 'FC':
+		if layer.LAYER_TYPE == 'FC':
 			# Create the Activation Layer (transparent to user).
 			self.add_layer(
 				layers.Activation(function=layer.ACTIVATION)
@@ -128,7 +128,7 @@ class Model():
 		ys = ys.reshape(-1,1) if ys.ndim == 1 else ys
 		# --------- ASSERTIONS -----------
 		# Check shapes and orientation are as expected
-		assert self.structure[-1].__class__.__name__ in ('FC','Activation'), 'Model must have either FC or ACTIVATION as final layer.'
+		assert self.structure[-1].LAYER_TYPE in ('FC','Activation'), 'Model must have either FC or Activation as final layer.'
 		assert Xs.shape[0] == ys.shape[0], f'Dimension (0) of input data [{Xs.shape}] and labels [{ys.shape}] does not match.'
 		assert Xs.ndim in (2,4), 'Xs must be either 2 dimensions (for NN) or 4 dimensions (for Model).'
 		if Xs.ndim == 4:
@@ -237,7 +237,7 @@ class Model():
 			Xs = layer._forwards(Xs)
 		return Xs
 
-	def evaluate(self,Xs: np.ndarray,ys: np.ndarray) -> int:
+	def evaluate(self,Xs: np.ndarray,ys: np.ndarray) -> float:
 		predictions = self.predict(Xs,training=False)
 		accuracy = np.sum((np.argmax(ys.T,axis=0) == np.argmax(predictions,axis=0))) / len(Xs)
 		return accuracy
@@ -298,7 +298,7 @@ class Model():
 		total_non_trainable = 0
 		for layer in self.structure:
 			index = str(layer.MODEL_STRUCTURE_INDEX)
-			type_ = layer.LAYER_TYPE
+			type_ = layer.LAYER_TYPE + ' (' + layer.FUNCTION + ')' if layer.LAYER_TYPE == "Activation" else layer.LAYER_TYPE
 			out_shape = layer.OUTPUT_SHAPE
 			trainable_params, non_trainable_params = layer.count_params(split_trainable=True)
 			total_trainable += trainable_params

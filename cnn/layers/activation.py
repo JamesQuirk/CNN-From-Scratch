@@ -5,7 +5,6 @@ class Activation(Layer):
 	def __init__(self,function: str=None,alpha=0.01,input_shape=None):
 		super().__init__()
 
-		self.LAYER_TYPE = self.__class__.__name__ + ' (' + function + ')'
 		self.trainable = False
 		self.alpha = alpha
 		self.INPUT_SHAPE = input_shape

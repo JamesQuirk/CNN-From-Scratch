@@ -13,7 +13,6 @@ class Flatten(Layer):
 
 		super().__init__()
 
-		self.LAYER_TYPE = self.__class__.__name__
 		self.trainable = False
 		if input_shape is not None:
 			assert len(input_shape) == 3, f'ERROR: Expected input_shape to be a tuple of length 3; (channels, height, width).'

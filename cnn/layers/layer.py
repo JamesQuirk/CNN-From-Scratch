@@ -8,6 +8,7 @@ class Layer:
 	ABSTRACT LAYER CLASS FOR ALL LAYER TYPES
 	'''
 	def __init__(self):
+		self.LAYER_TYPE = self.__class__.__name__
 		self.model = None
 
 		self.next_layer = None

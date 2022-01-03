@@ -18,7 +18,6 @@ class FC(Layer):
 		"""
 		super().__init__()
 
-		self.LAYER_TYPE = self.__class__.__name__
 		self.NUM_NODES = num_nodes
 		self.ACTIVATION = None if activation is None else activation.lower()
 		self.RANDOM_SEED = random_seed
