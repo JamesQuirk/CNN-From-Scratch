@@ -6,7 +6,7 @@ class Activation(Layer):
 		super().__init__()
 
 		self.LAYER_TYPE = self.__class__.__name__ + ' (' + function + ')'
-		self.TRAINABLE = False
+		self.trainable = False
 		self.alpha = alpha
 		self.INPUT_SHAPE = input_shape
 
@@ -18,7 +18,6 @@ class Activation(Layer):
 		else:
 			self.INPUT_SHAPE = self.prev_layer.OUTPUT_SHAPE
 		self.OUTPUT_SHAPE = self.INPUT_SHAPE
-		# self.output = np.zeros(shape=self.INPUT_SHAPE )
 
 	def _forwards(self,_input: np.ndarray) -> np.ndarray:
 		if self.prev_layer.LAYER_TYPE == 'FC':

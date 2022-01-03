@@ -76,7 +76,7 @@ class Layer:
 		
 		return details
 
-	def count_params(self,split_trainable=True) -> Union(Tuple, int):
+	def count_params(self,split_trainable=True) -> Union[Tuple, int]:
 		""" Sums sizes of any parameter attributes of the layer object.
 		'parameter' is defined as any attribute that is of type 'CNNParam'.
 
@@ -84,13 +84,39 @@ class Layer:
 		"""
 		trainable = 0
 		non_trainable = 0
-		for att in self.__dict__.values():
-			if isinstance(att,CNNParam):
-				if att.trainable:
-					trainable += att.size
-				else:
-					non_trainable += att.size
+		for param in self.get_params():
+			if param.trainable:
+				trainable += param.size
+			else:
+				non_trainable += param.size
 		if split_trainable:
 			return trainable, non_trainable
 		else:
 			return trainable + non_trainable
+
+	def get_params(self):
+		params = []
+		for att in self.__dict__.values():
+			if isinstance(att,CNNParam):
+				params.append(att)
+		return params
+
+	@property
+	def trainable(self):
+		try:
+			return self._trainable
+		except AttributeError as e:
+			# Defaults to 'True'
+			self.trainable = True
+			return self._trainable 
+
+	@trainable.setter
+	def trainable(self,value):
+		""" When setting to trainability of the layer, this should link with the param trainability; 
+		i.e. set the value for each param.
+		This relationship is one-directional.
+		"""
+		assert isinstance(value,bool), f"{self}.trainable must be a boolean value."
+		self._trainable = value
+		for param in self.get_params():
+			param.trainable = value
