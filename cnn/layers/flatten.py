@@ -19,8 +19,6 @@ class Flatten(Layer):
 			assert len(input_shape) == 3, f'ERROR: Expected input_shape to be a tuple of length 3; (channels, height, width).'
 		self.INPUT_SHAPE = input_shape
 
-		self.NUM_PARAMS = 0
-
 	def prepare_layer(self) -> None:
 		if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 			assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'

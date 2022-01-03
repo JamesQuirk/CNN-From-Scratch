@@ -1,5 +1,7 @@
 import numpy as np
 import sys
+from cnn.params import CNNParam
+from typing import Tuple, Union
 
 class Layer:
 	'''
@@ -12,7 +14,6 @@ class Layer:
 		self.prev_layer = None
 
 		self.output = None
-		self.params = {}
 
 	def _initiate_history(self):
 		out_init_arr = np.zeros(self.model.EPOCHS * self.model.N)
@@ -75,23 +76,21 @@ class Layer:
 		
 		return details
 
-	def count_params(self):
-		'''
-			params = {
-				'param_name': {
-					'trainable':True,
-					'values':[....]	<--- np.ndarray
-				}
-			}
-		'''
+	def count_params(self,split_trainable=True) -> Union(Tuple, int):
+		""" Sums sizes of any parameter attributes of the layer object.
+		'parameter' is defined as any attribute that is of type 'CNNParam'.
+
+		Returns: Tuple(trainable, non trainable) [if split_trainable is True]; total params otherwise.
+		"""
 		trainable = 0
 		non_trainable = 0
-
-
-		for param in self.params:
-			if param.trainable:
-				trainable += param.values.size
-			else:
-				non_trainable += param.values.size
-
-		return trainable, non_trainable
+		for att in self.__dict__.values():
+			if isinstance(att,CNNParam):
+				if att.trainable:
+					trainable += att.size
+				else:
+					non_trainable += att.size
+		if split_trainable:
+			return trainable, non_trainable
+		else:
+			return trainable + non_trainable

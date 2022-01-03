@@ -12,8 +12,6 @@ class Activation(Layer):
 
 		self.FUNCTION = None if function is None else function.lower()
 
-		self.NUM_PARAMS = 0
-
 	def prepare_layer(self):
 		if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 			assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'

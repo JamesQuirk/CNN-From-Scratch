@@ -99,18 +99,12 @@ class Model():
 
 				curr_layer.MODEL_STRUCTURE_INDEX = index
 
-				# print(f'Preparing Layer:: Type = {curr_layer.LAYER_TYPE} | Structure index = {curr_layer.MODEL_STRUCTURE_INDEX}')
 				curr_layer.prepare_layer()
-				# print('--> Num params:',curr_layer.NUM_PARAMS)
-				# print('--> Expected output shape:',curr_layer.OUTPUT_SHAPE)
 				if curr_layer.MODEL_STRUCTURE_INDEX == 0:
 					# First layer; set model input shape.
 					self.INPUT_SHAPE = curr_layer.INPUT_SHAPE
-				# self.details['param_counts'].append(curr_layer.NUM_PARAMS)
-				# self.details['output_shapes'].append(curr_layer.OUTPUT_SHAPE)
 
 		self.is_prepared = True
-		# print(self.details)
 		self.print_summary()
 		print(f'Model Prepared: {self.is_prepared}')
 
@@ -211,12 +205,8 @@ class Model():
 				ind_upper = self.N
 			self.current_batch_size = ind_upper - ind_lower
 
-			# print('Lower index:',ind_lower,'Upper index:',ind_upper)
-			# print(self.Xs)
-			# print(self.BATCH_COUNT, self.Xs.shape)
 			batch_Xs = self.Xs[ ind_lower : ind_upper ].copy()
 			batch_ys = self.ys[ ind_lower : ind_upper ].copy()
-			# print(batch_Xs.shape,batch_ys.shape)
 
 			predictions = self.predict(batch_Xs,training=True)
 
@@ -225,14 +215,7 @@ class Model():
 
 			batch_correct = np.sum((np.argmax(batch_ys.T,axis=0) == np.argmax(predictions,axis=0)))
 			self.epoch_accuracy = (self.epoch_accuracy * ind_lower + batch_correct) / (ind_upper+1)
-			# for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
-			# 	print(X.shape)
-			# 	prediction = self.predict(X,training=True)
-
-			# 	self.iteration_cost += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size)
-			# 	self.iteration_cost_gradient += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size,derivative=True)
-
-			# print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Batch: {batch_ind+1}/{self.BATCH_COUNT} | Cost: {self.iteration_cost}')
+			
 			self._print_train_progress(batch_ind)
 
 			self._iterate_backwards()
@@ -252,8 +235,6 @@ class Model():
 		if training: self.feed_forwards_cycle_index += 1
 		for layer in self.structure:
 			Xs = layer._forwards(Xs)
-			# print('Layer index:',layer.MODEL_STRUCTURE_INDEX)
-			# print('Output:',X)
 		return Xs
 
 	def evaluate(self,Xs: np.ndarray,ys: np.ndarray) -> int:
@@ -290,9 +271,7 @@ class Model():
 				return -( 2 * error ) / batch_size	# Vector
 		elif self.COST_FN == 'cross_entropy':
 			if not derivative:
-				# print('logprobs:',np.log(predictions))
 				cost = -np.sum(labels * np.log(predictions)) / batch_size
-				# print('Cost:',cost)
 				return cost
 			else:
 				return - np.divide(labels,predictions) / batch_size
@@ -321,13 +300,7 @@ class Model():
 			index = str(layer.MODEL_STRUCTURE_INDEX)
 			type_ = layer.LAYER_TYPE
 			out_shape = layer.OUTPUT_SHAPE
-			trainable_params = 0
-			non_trainable_params = 0
-			for _,param in layer.params.items():
-				if param['trainable']:
-					trainable_params += param['values'].size
-				else:
-					non_trainable_params += param['values'].size
+			trainable_params, non_trainable_params = layer.count_params(split_trainable=True)
 			total_trainable += trainable_params
 			total_non_trainable += non_trainable_params
 			info_str = ' ' + index + ' '*(field_lengths[0] - len(index)-1) + \

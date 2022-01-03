@@ -33,8 +33,6 @@ class Pool(Layer):
 		self.VECTORISED = vectorised
 		self.TRACK_HISTORY = track_history
 
-		self.NUM_PARAMS = 0
-
 	def prepare_layer(self) -> np.ndarray:
 		""" This needs to be done after the input has been identified - currently happens when train() is called. """
 		if self.prev_layer == None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
