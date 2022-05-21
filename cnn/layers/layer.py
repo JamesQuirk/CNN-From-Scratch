@@ -1,18 +1,20 @@
 import numpy as np
 import sys
+from cnn.params import CNNParam
+from typing import Tuple, Union
 
 class Layer:
 	'''
 	ABSTRACT LAYER CLASS FOR ALL LAYER TYPES
 	'''
 	def __init__(self):
+		self.LAYER_TYPE = self.__class__.__name__
 		self.model = None
 
 		self.next_layer = None
 		self.prev_layer = None
 
 		self.output = None
-		self.params = {}
 
 	def _initiate_history(self):
 		out_init_arr = np.zeros(self.model.EPOCHS * self.model.N)
@@ -50,17 +52,17 @@ class Layer:
 			'LAYER_INDEX':self.MODEL_STRUCTURE_INDEX,
 			'LAYER_TYPE':self.LAYER_TYPE
 		}
-		if self.LAYER_TYPE is 'CONV':
+		if self.LAYER_TYPE is 'Conv2D':
 			details.update({
 				'NUM_FILTERS':self.NUM_FILTERS,
 				'STRIDE':self.STRIDE
 			})
-		elif self.LAYER_TYPE is 'POOL':
+		elif self.LAYER_TYPE is 'Pool':
 			details.update({
 				'STRIDE':self.STRIDE,
 				'POOL_TYPE':self.POOL_TYPE
 			})
-		elif self.LAYER_TYPE is 'FLATTEN':
+		elif self.LAYER_TYPE is 'Flatten':
 			details.update({
 			})
 		elif self.LAYER_TYPE is 'FC':
@@ -68,30 +70,50 @@ class Layer:
 				'NUM_NODES':self.NUM_NODES,
 				'ACTIVATION':self.ACTIVATION
 			})
-		elif self.LAYER_TYPE is 'ACTIVATION':
-			details.update({
-				'FUNCTION':self.FUNCTION
-			})
 		
 		return details
 
-	def count_params(self):
-		'''
-			params = {
-				'param_name': {
-					'trainable':True,
-					'values':[....]	<--- np.ndarray
-				}
-			}
-		'''
+	def count_params(self,split_trainable=True) -> Union[Tuple, int]:
+		""" Sums sizes of any parameter attributes of the layer object.
+		'parameter' is defined as any attribute that is of type 'CNNParam'.
+
+		Returns: Tuple(trainable, non trainable) [if split_trainable is True]; total params otherwise.
+		"""
 		trainable = 0
 		non_trainable = 0
-
-
-		for param in self.params:
+		for param in self.get_params():
 			if param.trainable:
-				trainable += param.values.size
+				trainable += param.size
 			else:
-				non_trainable += param.values.size
+				non_trainable += param.size
+		if split_trainable:
+			return trainable, non_trainable
+		else:
+			return trainable + non_trainable
 
-		return trainable, non_trainable
+	def get_params(self):
+		params = []
+		for att in self.__dict__.values():
+			if isinstance(att,CNNParam):
+				params.append(att)
+		return params
+
+	@property
+	def trainable(self):
+		try:
+			return self._trainable
+		except AttributeError as e:
+			# Defaults to 'True'
+			self.trainable = True
+			return self._trainable 
+
+	@trainable.setter
+	def trainable(self,value):
+		""" When setting to trainability of the layer, this should link with the param trainability; 
+		i.e. set the value for each param.
+		This relationship is one-directional.
+		"""
+		assert isinstance(value,bool), f"{self}.trainable must be a boolean value."
+		self._trainable = value
+		for param in self.get_params():
+			param.trainable = value

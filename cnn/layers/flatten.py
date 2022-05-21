@@ -13,15 +13,12 @@ class Flatten(Layer):
 
 		super().__init__()
 
-		self.LAYER_TYPE = self.__class__.__name__
-		self.TRAINABLE = False
+		self.trainable = False
 		if input_shape is not None:
 			assert len(input_shape) == 3, f'ERROR: Expected input_shape to be a tuple of length 3; (channels, height, width).'
 		self.INPUT_SHAPE = input_shape
 
-		self.NUM_PARAMS = 0
-
-	def prepare_layer(self):
+	def prepare_layer(self) -> None:
 		if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.
 			assert self.INPUT_SHAPE is not None, 'ERROR: Must define input shape for first layer.'
 		else:
@@ -29,7 +26,7 @@ class Flatten(Layer):
 		self.OUTPUT_SHAPE = (np.prod(self.INPUT_SHAPE),1)	# Output shape for a single example.
 		# self.output = np.zeros(shape=(np.prod(self.INPUT_SHAPE[1:]),self.INPUT_SHAPE[0]))
 
-	def _forwards(self,_input):
+	def _forwards(self,_input: np.ndarray) -> np.ndarray:
 		assert _input.shape[1:] == self.INPUT_SHAPE, f'ERROR:: Input has unexpected shape: {_input.shape[1:]} | expected: {self.INPUT_SHAPE}'
 		self.input = _input
 		self.output = _input.T.reshape((-1,_input.shape[0]))	# Taking transpose here puts each example into its own column - number of columns == number of examles.

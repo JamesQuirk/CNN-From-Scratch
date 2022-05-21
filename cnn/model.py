@@ -2,83 +2,78 @@ import numpy as np
 import pickle
 import math
 from datetime import datetime as dt
+
+from cnn.layers.layer import Layer
 from . import layers
 from . import optimisers
 
+from typing import Any, AnyStr
 
-# CLASS
+def load_model(name):
+	assert name.split('.')[-1] == 'pkl'
+	with open(name, 'rb') as file:  
+		model = pickle.load(file)
+	return model
+
 class Model():
 	"""
 	This is the top level class.
 	"""
 
-	def __init__(self,optimiser_method='gd'):
+	def __init__(self):
 		'''
 		- optimiser_method (str): Options: ('gd','momentum','rmsprop','adam'). Default is 'gd'.
 		'''
-		assert optimiser_method.lower() in Model.SUPPORTED_OPTIMISERS, f'You must provide an optimiser that is supported. The options are: {Model.SUPPORTED_OPTIMISERS}'
 
 		self.is_prepared = False
 
-		self.OPTIMISER_METHOD = optimiser_method.lower()
-
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
-		self.layer_counts = dict(zip(['total'] + layers.layers,[0]*(len(layers.layers)+1)))	# dict for counting number of each layer type
 
-	def add_layer(self,layer):
-		if layer.LAYER_TYPE == 'ACTIVATION' and self.structure[-1].LAYER_TYPE == 'ACTIVATION':
+	def add_layer(self,layer: Layer) -> None:
+		if layer.LAYER_TYPE in layers.activations.available_activations and self.structure[-1].LAYER_TYPE in layers.activations.available_activations:
 			print('-- WARNING:: Two Activation Layers in subsequent positions in the model.')
-			if layer.FUNCTION == self.structure[-1].FUNCTION:
+			if layer.LAYER_TYPE == self.structure[-1].LAYER_TYPE:
 				print('--- INFO:: Both Activation Layers are the same, skipping creation of second layer.')
 				return
 
 		layer.model = self
 
 		if len(self.structure) > 0:
-			if layer.__class__.__name__ == 'FC' and self.structure[-1].__class__.__name__ not in ('Flatten','FC','Activation'):
+			if layer.LAYER_TYPE == 'FC' and self.structure[-1].LAYER_TYPE not in ('Flatten','FC',*layers.activations.available_activations):
 				# If no Flatten layer added before adding first FC layer, one will be added automatically.
 				self.add_layer(layers.Flatten())
 
 		self.structure.append(layer)
-		self.layer_counts[layer.__class__.__name__] += 1
-		self.layer_counts['total'] += 1
 
-		if layer.__class__.__name__ == 'FC':
+		if layer.LAYER_TYPE == 'FC':
 			# Create the Activation Layer (transparent to user).
 			self.add_layer(
-				layers.Activation(function=layer.ACTIVATION)
+				layers.activations.from_name(layer.ACTIVATION)
 			)
 
-	def remove_layer(self,index):
+	def remove_layer(self,index: int) -> None:
 		self.structure.pop(index)
 		if self.is_prepared:
 			print('-- INFO:: Re-compiling model...')
 			self.prepare_model()
-			
-	def get_model_details(self):
-		details = []
-		for layer in self.structure:
-			details.append(layer.define_details())
-
-		return details
 		
-	def prepare_model(self,optimiser='gd',learning_rate=None):
+	def prepare_model(self,optimiser: Any='gd'):
 		""" Called once final layer is added, each layer can now initiate its weights and biases. """
 		print('Preparing model...')
 
 		if type(optimiser) == str:
-			assert optimiser.lower() in optimisers.optimiser_names, f'Unrecognised optimiser name: {optimiser}; choose from: {optimisers.optimiser_names}'
-			self.OPTIMISER = optimisers.from_name(optimiser,learning_rate)
+			assert optimiser.lower() in optimisers.optimiser_identifiers, f'Unrecognised optimiser name: {optimiser}; choose from: {optimisers.optimiser_identifiers}'
+			self.OPTIMISER = optimisers.from_name(optimiser)
 		else:
-			assert optimiser.__class__.__name__ in optimisers.optimiser_names, f'Invalid optimiser: {optimiser}'
+			assert (isinstance(optimiser,optimisers.BaseOptimiser) and optimiser.__class__.__name__ in optimisers.optimiser_identifiers), f'Invalid optimiser: {optimiser}'
 			self.OPTIMISER = optimiser
 
 		self.details = {
 			'param_counts': [],
 			'output_shapes': []
 		}
-		if self.layer_counts['total'] > 1:
-			for index in range(self.layer_counts['total']):
+		if len(self.structure) > 1:
+			for index, curr_layer in enumerate(self.structure):
 				curr_layer = self.structure[index]
 				if index != len(self.structure) - 1:
 					next_layer = self.structure[index + 1]
@@ -91,22 +86,16 @@ class Model():
 
 				curr_layer.MODEL_STRUCTURE_INDEX = index
 
-				# print(f'Preparing Layer:: Type = {curr_layer.LAYER_TYPE} | Structure index = {curr_layer.MODEL_STRUCTURE_INDEX}')
 				curr_layer.prepare_layer()
-				# print('--> Num params:',curr_layer.NUM_PARAMS)
-				# print('--> Expected output shape:',curr_layer.OUTPUT_SHAPE)
-				if curr_layer.MODEL_STRUCTURE_INDEX == 0:
+				if index == 0:
 					# First layer; set model input shape.
 					self.INPUT_SHAPE = curr_layer.INPUT_SHAPE
-				# self.details['param_counts'].append(curr_layer.NUM_PARAMS)
-				# self.details['output_shapes'].append(curr_layer.OUTPUT_SHAPE)
 
 		self.is_prepared = True
-		# print(self.details)
 		self.print_summary()
 		print(f'Model Prepared: {self.is_prepared}')
 
-	def train(self,Xs,ys,epochs,max_batch_size=32,shuffle=False,random_seed=42,learning_rate=0.01,cost_fn='mse',beta1=0.9,beta2=0.999):
+	def train(self,Xs: np.ndarray,ys: np.ndarray,epochs: int,max_batch_size: int=32,shuffle: bool=False,random_seed: int=42,learning_rate: float=0.01,cost_fn: AnyStr='mse',beta1: float=0.9,beta2: float=0.999) -> dt:
 		'''
 		Should take array of inputs and array of labels of the same length.
 
@@ -126,7 +115,6 @@ class Model():
 		ys = ys.reshape(-1,1) if ys.ndim == 1 else ys
 		# --------- ASSERTIONS -----------
 		# Check shapes and orientation are as expected
-		assert self.structure[-1].__class__.__name__ in ('FC','Activation'), 'Model must have either FC or ACTIVATION as final layer.'
 		assert Xs.shape[0] == ys.shape[0], f'Dimension (0) of input data [{Xs.shape}] and labels [{ys.shape}] does not match.'
 		assert Xs.ndim in (2,4), 'Xs must be either 2 dimensions (for NN) or 4 dimensions (for Model).'
 		if Xs.ndim == 4:
@@ -175,7 +163,7 @@ class Model():
 
 		return dt.now(), dt.now() - train_start	# returns training finish time and duration.
 
-	def _print_train_progress(self,batch_index):
+	def _print_train_progress(self,batch_index: int) -> None:
 		progess_bar_length = 30	# characters (not including '[' ']')
 		progress = (batch_index+1) / self.BATCH_COUNT
 		progressor = '=' * int(progress * progess_bar_length)
@@ -193,9 +181,7 @@ class Model():
 		else:
 			print(print_string,end='\r')
 
-	SUPPORTED_OPTIMISERS = ('gd','momentum','rmsprop','adam')
-
-	def _iterate_forwards(self):
+	def _iterate_forwards(self) -> None:
 		for batch_ind in range(self.BATCH_COUNT):
 			ind_lower = batch_ind * self.MAX_BATCH_SIZE	# Lower bound of index range
 			ind_upper = batch_ind * self.MAX_BATCH_SIZE + self.MAX_BATCH_SIZE	# Upper bound of index range
@@ -203,12 +189,8 @@ class Model():
 				ind_upper = self.N
 			self.current_batch_size = ind_upper - ind_lower
 
-			# print('Lower index:',ind_lower,'Upper index:',ind_upper)
-			# print(self.Xs)
-			# print(self.BATCH_COUNT, self.Xs.shape)
 			batch_Xs = self.Xs[ ind_lower : ind_upper ].copy()
 			batch_ys = self.ys[ ind_lower : ind_upper ].copy()
-			# print(batch_Xs.shape,batch_ys.shape)
 
 			predictions = self.predict(batch_Xs,training=True)
 
@@ -217,19 +199,12 @@ class Model():
 
 			batch_correct = np.sum((np.argmax(batch_ys.T,axis=0) == np.argmax(predictions,axis=0)))
 			self.epoch_accuracy = (self.epoch_accuracy * ind_lower + batch_correct) / (ind_upper+1)
-			# for ex_ind , X in enumerate(batch_Xs):	# For each example (observation)
-			# 	print(X.shape)
-			# 	prediction = self.predict(X,training=True)
-
-			# 	self.iteration_cost += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size)
-			# 	self.iteration_cost_gradient += self.cost(prediction, batch_ys[ex_ind],batch_size=batch_size,derivative=True)
-
-			# print(f'-- Epoch: {self.epoch_ind+1}/{self.EPOCHS } | Batch: {batch_ind+1}/{self.BATCH_COUNT} | Cost: {self.iteration_cost}')
+			
 			self._print_train_progress(batch_ind)
 
 			self._iterate_backwards()
 
-	def _iterate_backwards(self):
+	def _iterate_backwards(self) -> None:
 		self.iteration_index += 1
 		self.history['cost'][self.iteration_index] = self.iteration_cost
 		# Backpropagate the cost_gradient
@@ -240,15 +215,13 @@ class Model():
 		self.iteration_cost = 0
 		self.iteration_cost_gradient = 0
 
-	def predict(self,Xs,training=False):
+	def predict(self,Xs: np.ndarray,training: bool=False) -> np.ndarray:
 		if training: self.feed_forwards_cycle_index += 1
 		for layer in self.structure:
 			Xs = layer._forwards(Xs)
-			# print('Layer index:',layer.MODEL_STRUCTURE_INDEX)
-			# print('Output:',X)
 		return Xs
 
-	def evaluate(self,Xs,ys):
+	def evaluate(self,Xs: np.ndarray,ys: np.ndarray) -> float:
 		predictions = self.predict(Xs,training=False)
 		accuracy = np.sum((np.argmax(ys.T,axis=0) == np.argmax(predictions,axis=0))) / len(Xs)
 		return accuracy
@@ -265,7 +238,7 @@ class Model():
 
 	SUPPORTED_COST_FUNCTIONS = ('mse','cross_entropy')
 
-	def cost(self,predictions,labels,derivative=False):
+	def cost(self,predictions: np.ndarray,labels: np.ndarray,derivative: bool=False) -> float:
 		'''
 		Cost function to provide measure of model 'correctness'. returns vector cost value.
 		'''
@@ -282,9 +255,7 @@ class Model():
 				return -( 2 * error ) / batch_size	# Vector
 		elif self.COST_FN == 'cross_entropy':
 			if not derivative:
-				# print('logprobs:',np.log(predictions))
 				cost = -np.sum(labels * np.log(predictions)) / batch_size
-				# print('Cost:',cost)
 				return cost
 			else:
 				return - np.divide(labels,predictions) / batch_size
@@ -309,20 +280,13 @@ class Model():
 		# Add layer info...
 		total_trainable = 0
 		total_non_trainable = 0
-		for layer in self.structure:
-			index = str(layer.MODEL_STRUCTURE_INDEX)
+		for index, layer in enumerate(self.structure):
 			type_ = layer.LAYER_TYPE
 			out_shape = layer.OUTPUT_SHAPE
-			trainable_params = 0
-			non_trainable_params = 0
-			for _,param in layer.params.items():
-				if param['trainable']:
-					trainable_params += param['values'].size
-				else:
-					non_trainable_params += param['values'].size
+			trainable_params, non_trainable_params = layer.count_params(split_trainable=True)
 			total_trainable += trainable_params
 			total_non_trainable += non_trainable_params
-			info_str = ' ' + index + ' '*(field_lengths[0] - len(index)-1) + \
+			info_str = ' ' + str(index) + ' '*(field_lengths[0] - len(str(index))-1) + \
 				' ' + type_ + ' '*(field_lengths[1] - len(type_) -1) + \
 				' ' + str(out_shape) + ' '*(field_lengths[2] - len(str(out_shape))-1) + \
 				' ' + str(trainable_params) + ' '*(field_lengths[3] - len(str(trainable_params))-1) + \
