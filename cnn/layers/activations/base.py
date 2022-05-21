@@ -1,14 +1,11 @@
 from ..layer import Layer
 
 class BaseActivation(Layer):
-	def __init__(self,function: str=None,alpha=0.01,input_shape=None):
+	def __init__(self,input_shape=None):
 		super().__init__()
 
 		self.trainable = False
-		self.alpha = alpha
 		self.INPUT_SHAPE = input_shape
-
-		self.FUNCTION = None if function is None else function.lower()
 
 	def prepare_layer(self):
 		if self.prev_layer is None:	# This means this is the first layer in the structure, so 'input' is the only thing before.

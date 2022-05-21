@@ -22,6 +22,9 @@ class ReLU(BaseActivation):
 		return dC_dZexpanded.reshape(dCdA.shape[1],-1).T
 
 class LeakyReLU(BaseActivation):
+	def __init__(self, alpha=0.01, input_shape=None):
+		super().__init__(input_shape=input_shape)
+		self.alpha = alpha
 	
 	def _forwards(self,X:np.ndarray):
 		self.input = X.copy()
