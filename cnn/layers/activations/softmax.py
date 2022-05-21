@@ -2,6 +2,7 @@ import numpy as np
 from .base import BaseActivation
 
 class Softmax(BaseActivation):
+	ALIAS = "softmax"
 	
 	def _forwards(self,X:np.ndarray):
 		self.input = X.copy()

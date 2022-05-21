@@ -1,6 +1,8 @@
 from ..layer import Layer
 
 class BaseActivation(Layer):
+	ALIAS = "base"
+	
 	def __init__(self,input_shape=None):
 		super().__init__()
 

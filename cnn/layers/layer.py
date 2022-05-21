@@ -52,27 +52,23 @@ class Layer:
 			'LAYER_INDEX':self.MODEL_STRUCTURE_INDEX,
 			'LAYER_TYPE':self.LAYER_TYPE
 		}
-		if self.LAYER_TYPE is 'CONV':
+		if self.LAYER_TYPE is 'Conv2D':
 			details.update({
 				'NUM_FILTERS':self.NUM_FILTERS,
 				'STRIDE':self.STRIDE
 			})
-		elif self.LAYER_TYPE is 'POOL':
+		elif self.LAYER_TYPE is 'Pool':
 			details.update({
 				'STRIDE':self.STRIDE,
 				'POOL_TYPE':self.POOL_TYPE
 			})
-		elif self.LAYER_TYPE is 'FLATTEN':
+		elif self.LAYER_TYPE is 'Flatten':
 			details.update({
 			})
 		elif self.LAYER_TYPE is 'FC':
 			details.update({
 				'NUM_NODES':self.NUM_NODES,
 				'ACTIVATION':self.ACTIVATION
-			})
-		elif self.LAYER_TYPE is 'ACTIVATION':
-			details.update({
-				'FUNCTION':self.FUNCTION
 			})
 		
 		return details

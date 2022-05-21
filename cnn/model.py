@@ -20,41 +20,35 @@ class Model():
 	This is the top level class.
 	"""
 
-	def __init__(self,optimiser_method='gd'):
+	def __init__(self):
 		'''
 		- optimiser_method (str): Options: ('gd','momentum','rmsprop','adam'). Default is 'gd'.
 		'''
-		assert optimiser_method.lower() in Model.SUPPORTED_OPTIMISERS, f'You must provide an optimiser that is supported. The options are: {Model.SUPPORTED_OPTIMISERS}'
 
 		self.is_prepared = False
 
-		self.OPTIMISER_METHOD = optimiser_method.lower()
-
 		self.structure = []	# defines order of model (list of layer objects) - EXCLUDES INPUT DATA
-		self.layer_counts = dict(zip(['total'] + layers.layers,[0]*(len(layers.layers)+1)))	# dict for counting number of each layer type
 
 	def add_layer(self,layer: Layer) -> None:
-		if layer.LAYER_TYPE == 'Activation' and self.structure[-1].LAYER_TYPE == 'Activation':
+		if layer.LAYER_TYPE in layers.activations.available_activations and self.structure[-1].LAYER_TYPE in layers.activations.available_activations:
 			print('-- WARNING:: Two Activation Layers in subsequent positions in the model.')
-			if layer.FUNCTION == self.structure[-1].FUNCTION:
+			if layer.LAYER_TYPE == self.structure[-1].LAYER_TYPE:
 				print('--- INFO:: Both Activation Layers are the same, skipping creation of second layer.')
 				return
 
 		layer.model = self
 
 		if len(self.structure) > 0:
-			if layer.LAYER_TYPE == 'FC' and self.structure[-1].LAYER_TYPE not in ('Flatten','FC','Activation'):
+			if layer.LAYER_TYPE == 'FC' and self.structure[-1].LAYER_TYPE not in ('Flatten','FC',*layers.activations.available_activations):
 				# If no Flatten layer added before adding first FC layer, one will be added automatically.
 				self.add_layer(layers.Flatten())
 
 		self.structure.append(layer)
-		self.layer_counts[layer.LAYER_TYPE] += 1
-		self.layer_counts['total'] += 1
 
 		if layer.LAYER_TYPE == 'FC':
 			# Create the Activation Layer (transparent to user).
 			self.add_layer(
-				layers.Activation(function=layer.ACTIVATION)
+				layers.activations.from_name(layer.ACTIVATION)
 			)
 
 	def remove_layer(self,index: int) -> None:
@@ -62,31 +56,24 @@ class Model():
 		if self.is_prepared:
 			print('-- INFO:: Re-compiling model...')
 			self.prepare_model()
-			
-	def get_model_details(self):
-		details = []
-		for layer in self.structure:
-			details.append(layer.define_details())
-
-		return details
 		
-	def prepare_model(self,optimiser: Any='gd',learning_rate=None):
+	def prepare_model(self,optimiser: Any='gd'):
 		""" Called once final layer is added, each layer can now initiate its weights and biases. """
 		print('Preparing model...')
 
 		if type(optimiser) == str:
-			assert optimiser.lower() in optimisers.optimiser_names, f'Unrecognised optimiser name: {optimiser}; choose from: {optimisers.optimiser_names}'
-			self.OPTIMISER = optimisers.from_name(optimiser,learning_rate)
+			assert optimiser.lower() in optimisers.optimiser_identifiers, f'Unrecognised optimiser name: {optimiser}; choose from: {optimisers.optimiser_identifiers}'
+			self.OPTIMISER = optimisers.from_name(optimiser)
 		else:
-			assert (isinstance(optimiser,optimisers.BaseOptimiser) and optimiser.__class__.__name__ in optimisers.optimiser_names), f'Invalid optimiser: {optimiser}'
+			assert (isinstance(optimiser,optimisers.BaseOptimiser) and optimiser.__class__.__name__ in optimisers.optimiser_identifiers), f'Invalid optimiser: {optimiser}'
 			self.OPTIMISER = optimiser
 
 		self.details = {
 			'param_counts': [],
 			'output_shapes': []
 		}
-		if self.layer_counts['total'] > 1:
-			for index in range(self.layer_counts['total']):
+		if len(self.structure) > 1:
+			for index, curr_layer in enumerate(self.structure):
 				curr_layer = self.structure[index]
 				if index != len(self.structure) - 1:
 					next_layer = self.structure[index + 1]
@@ -100,7 +87,7 @@ class Model():
 				curr_layer.MODEL_STRUCTURE_INDEX = index
 
 				curr_layer.prepare_layer()
-				if curr_layer.MODEL_STRUCTURE_INDEX == 0:
+				if index == 0:
 					# First layer; set model input shape.
 					self.INPUT_SHAPE = curr_layer.INPUT_SHAPE
 
@@ -128,7 +115,6 @@ class Model():
 		ys = ys.reshape(-1,1) if ys.ndim == 1 else ys
 		# --------- ASSERTIONS -----------
 		# Check shapes and orientation are as expected
-		assert self.structure[-1].LAYER_TYPE in ('FC','Activation'), 'Model must have either FC or Activation as final layer.'
 		assert Xs.shape[0] == ys.shape[0], f'Dimension (0) of input data [{Xs.shape}] and labels [{ys.shape}] does not match.'
 		assert Xs.ndim in (2,4), 'Xs must be either 2 dimensions (for NN) or 4 dimensions (for Model).'
 		if Xs.ndim == 4:
@@ -194,8 +180,6 @@ class Model():
 			print(print_string,end='\n')
 		else:
 			print(print_string,end='\r')
-
-	SUPPORTED_OPTIMISERS = ('gd','momentum','rmsprop','adam')
 
 	def _iterate_forwards(self) -> None:
 		for batch_ind in range(self.BATCH_COUNT):
@@ -296,14 +280,13 @@ class Model():
 		# Add layer info...
 		total_trainable = 0
 		total_non_trainable = 0
-		for layer in self.structure:
-			index = str(layer.MODEL_STRUCTURE_INDEX)
-			type_ = layer.LAYER_TYPE + ' (' + layer.FUNCTION + ')' if layer.LAYER_TYPE == "Activation" else layer.LAYER_TYPE
+		for index, layer in enumerate(self.structure):
+			type_ = layer.LAYER_TYPE
 			out_shape = layer.OUTPUT_SHAPE
 			trainable_params, non_trainable_params = layer.count_params(split_trainable=True)
 			total_trainable += trainable_params
 			total_non_trainable += non_trainable_params
-			info_str = ' ' + index + ' '*(field_lengths[0] - len(index)-1) + \
+			info_str = ' ' + str(index) + ' '*(field_lengths[0] - len(str(index))-1) + \
 				' ' + type_ + ' '*(field_lengths[1] - len(type_) -1) + \
 				' ' + str(out_shape) + ' '*(field_lengths[2] - len(str(out_shape))-1) + \
 				' ' + str(trainable_params) + ' '*(field_lengths[3] - len(str(trainable_params))-1) + \

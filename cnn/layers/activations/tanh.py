@@ -2,6 +2,7 @@ import numpy as np
 from .base import BaseActivation
 
 class Tanh(BaseActivation):
+	ALIAS = "tanh"
 	
 	def _forwards(self,X:np.ndarray):
 		self.input = X.copy()
